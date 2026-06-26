@@ -1,8 +1,8 @@
 package router
 
 import (
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/request"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
 // 根据http路径来路由，寻找到最末端的那个节点

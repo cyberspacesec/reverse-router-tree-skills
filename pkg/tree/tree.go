@@ -1,6 +1,6 @@
 package tree
 
-import "github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
+import "github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
 
 type Tree struct {
 	Root node.Node[node.NodeContext]

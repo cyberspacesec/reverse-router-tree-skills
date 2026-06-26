@@ -1,6 +1,6 @@
 package router
 
-import "github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
+import "github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
 
 // Router 路由器接口
 // 这是一个泛型接口，RouterContext 表示路由上下文类型

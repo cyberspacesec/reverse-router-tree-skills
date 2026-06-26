@@ -1,9 +1,9 @@
 package router
 
 import (
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/request"
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/tree"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/tree"
 )
 
 // 用于对请求进行逆向工程，反推出web应用的路由树

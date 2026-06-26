@@ -1,8 +1,8 @@
 package inference
 
 import (
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/value"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/value"
 )
 
 // PhysicalTypeInferenceRule 实现了物理类型推断规则

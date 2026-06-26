@@ -1,8 +1,8 @@
 package router
 
 import (
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/node"
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/request"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
 type RequestContentTypeRouter struct {

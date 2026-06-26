@@ -3,7 +3,7 @@ package node
 import (
 	"fmt"
 
-	"github.com/cyberspacesec/go-reverse-router-tree/pkg/value"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/value"
 )
 
 // RequestPathVariableNode 定义了路径变量节点
