@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/value"
 )
@@ -20,7 +21,11 @@ type RequestPathVariableNode struct {
 	valueType value.Type
 	// 推断出的逻辑类型（在物理类型之上的语义类型）
 	logicalType value.LogicalType
-	// 可选的正则模式，用于匹配路径变量值
+	// typeMu 保护 valueType/logicalType 的并发读写。
+	// 多个 goroutine 命中同一已存在变量节点时，findOrCreatePathNode 会并发
+	// ObserveValue + InferPhysicalAndLogical 回填类型，需同步保护。
+	typeMu sync.RWMutex
+	// 可选的正则模式，用于匹配路径变量值（构造后只读，无需锁）
 	pattern *regexp.Regexp
 }
 
@@ -134,11 +139,15 @@ func (n *RequestPathVariableNode) ObserveValue(val string) {
 // 返回:
 //   - value.Type: 推断出的值类型
 func (n *RequestPathVariableNode) GetValueType() value.Type {
+	n.typeMu.RLock()
+	defer n.typeMu.RUnlock()
 	return n.valueType
 }
 
 // SetType 设置值类型
 func (n *RequestPathVariableNode) SetType(t value.Type) {
+	n.typeMu.Lock()
+	defer n.typeMu.Unlock()
 	n.valueType = t
 }
 
@@ -147,11 +156,15 @@ func (n *RequestPathVariableNode) SetType(t value.Type) {
 // 返回:
 //   - value.LogicalType: 推断出的逻辑类型
 func (n *RequestPathVariableNode) GetLogicalType() value.LogicalType {
+	n.typeMu.RLock()
+	defer n.typeMu.RUnlock()
 	return n.logicalType
 }
 
 // SetLogicalType 设置逻辑类型
 func (n *RequestPathVariableNode) SetLogicalType(lt value.LogicalType) {
+	n.typeMu.Lock()
+	defer n.typeMu.Unlock()
 	n.logicalType = lt
 }
 
