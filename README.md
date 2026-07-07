@@ -27,6 +27,7 @@ POST /api/users (json)     ──▶  requestBody: name, age
 - **多维度路由**：Content-Type / Header（Accept 等）/ Cookie 作为子路由维度
 - **两层类型推断**：物理类型（integer/string/...）+ 逻辑类型（uuid/phone/idcard/...）
 - **必需参数推断**：基于出现频率，阈值可配
+- **路由查询**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询请求命中的路由节点
 - **OpenAPI 3.0.3 导出**：路径/参数/请求体/安全方案（从 Authorization 推断 Bearer/Basic/Digest）
 - **并发安全**：`-race` 全量测试通过，多 goroutine 并发喂数据安全
 - **可观测性**：结构化日志（slog）+ 11 项 atomic 统计指标

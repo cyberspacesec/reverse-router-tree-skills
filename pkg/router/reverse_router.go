@@ -147,10 +147,6 @@ func (x *ReverseRouter) ResetStats() {
 	x.stats.Reset()
 }
 
-func (x *ReverseRouter) FindNode(n node.Node[node.NodeContext], routerContext node.NodeContext) (node.Node[node.NodeContext], error) {
-	return nil, nil
-}
-
 // ReverseHttpRequest 核心方法：将一个HTTP请求逆向工程到路由树中
 func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 	if req == nil {
@@ -1033,6 +1029,71 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 	}
 
 	return true
+}
+
+// FindRouteNode 在已构建的路由树中查找给定请求会命中的"方法节点"
+// （request_method 类型），返回该节点及其下匹配的 Content-Type 子节点（若有）。
+//
+// 与 IsNeedRequest 的区别：
+//   - IsNeedRequest 返回 bool（请求是否还需发出去采集）
+//   - FindRouteNode 返回命中的具体节点（供上层查询"这个请求落到哪条路由"）
+//
+// 命中规则与 ReverseHttpRequest 的路由构建一致：路径段精确匹配，未命中固定
+// 路径时回退到路径变量节点；方法节点按大写匹配。
+//
+// 返回：
+//   - methodNode: 命中的方法节点；路径或方法未命中时返回 nil
+//   - contentTypeNode: methodNode 下匹配请求 Content-Type 的子节点（仅 POST/PUT/PATCH
+//     且请求带 Content-Type 时查找）；无则为 nil
+//   - err: URL 解析失败等错误
+func (x *ReverseRouter) FindRouteNode(req *request.HttpRequest) (methodNode, contentTypeNode node.Node[node.NodeContext], err error) {
+	if req == nil {
+		return nil, nil, fmt.Errorf("请求不能为nil")
+	}
+
+	urlParser := request.NewUrlParser(req.Url)
+	paths, _, err := urlParser.Parse()
+	if err != nil {
+		return nil, nil, fmt.Errorf("解析URL失败: %w", err)
+	}
+
+	currentNode := node.Node[node.NodeContext](x.Tree.Root)
+	for _, pathSegment := range paths {
+		child := currentNode.FindChildByKey(pathSegment.Path)
+		if child == nil {
+			pathVarChild := currentNode.GetChildByType("request_path_variable")
+			if pathVarChild != nil {
+				currentNode = pathVarChild
+				continue
+			}
+			return nil, nil, nil // 路径未命中
+		}
+		currentNode = child
+	}
+
+	method := strings.ToUpper(req.Method)
+	if method == "" {
+		method = "GET"
+	}
+	methodNode = currentNode.FindChildByKey(method)
+	if methodNode == nil {
+		return nil, nil, nil // 方法未命中
+	}
+
+	contentType := req.Headers.GetContentType()
+	if contentType != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
+		contentTypeNode = methodNode.FindChildByKey(contentType)
+	}
+
+	return methodNode, contentTypeNode, nil
+}
+
+// FindNode 是早期预留的通用查找存根，语义不实用（签名与 HttpRequest 查询不匹配），
+// 始终返回 (nil, nil)。如需查询请求命中节点请用 FindRouteNode。
+//
+// Deprecated: 使用 FindRouteNode 替代。
+func (x *ReverseRouter) FindNode(n node.Node[node.NodeContext], routerContext node.NodeContext) (node.Node[node.NodeContext], error) {
+	return nil, nil
 }
 
 // 数学辅助函数
