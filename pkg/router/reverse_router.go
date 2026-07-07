@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/inference"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
@@ -54,6 +55,12 @@ type ReverseRouter struct {
 	bodyParser    *request.BodyParser
 	logger        *RouterLogger
 	stats         *RouterStats
+	// mergeMu 保护 checkAndMergeSiblings/mergeSiblings 的整个临界区。
+	// 合并涉及"读兄弟数→决策→删旧节点→建变量节点→迁移孙节点"多步，
+	// BaseNode.childMu 只保护单次子节点操作，无法保证整体原子——
+	// 两个 goroutine 并发合并同一 parent 会读到中间态导致 double-move/丢节点。
+	// 合并是低频操作（每 N 请求触发一次），router 级串行化代价可接受。
+	mergeMu sync.Mutex
 }
 
 // NewReverseRouter 创建一个新的逆向路由器（使用默认配置）
@@ -305,6 +312,11 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 
 // checkAndMergeSiblings 检查同一父节点下的兄弟路径节点数量
 func (x *ReverseRouter) checkAndMergeSiblings(parent node.Node[node.NodeContext]) {
+	// 整个合并临界区串行化，避免并发合并同一 parent 导致中间态竞争。
+	// 见 ReverseRouter.mergeMu 注释。
+	x.mergeMu.Lock()
+	defer x.mergeMu.Unlock()
+
 	pathChildren := make([]node.Node[node.NodeContext], 0)
 	for _, child := range parent.GetChildren() {
 		if child.GetType() == "request_path" {
