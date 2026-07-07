@@ -25,17 +25,16 @@
 - 精确参数名匹配（避免 page 匹配 page_size）
 - 添加 ValueMetric 用于值观察和类型推断
 
-### 2. 🔶 路由树的序列化/反序列化（部分完成）
+### 2. ~~路由树的序列化/反序列化~~（已完成 ✅）
 
 **文件**：`pkg/tree/tree.go`
 
 **已完成**：
 - ✅ JSON 导出/导入基本实现
-- ✅ 路径变量类型信息导出
+- ✅ 路径变量类型信息导出（物理类型 + 逻辑类型 + 正则 pattern 往返一致）
 - ✅ 参数 required 信息导出
-
-**待完善**：
-- [ ] 完整的逻辑类型信息导出
+- ✅ 完整的逻辑类型信息导出（路径变量 `logical_type` + 参数 `logical_type`，反序列化回填）
+- ✅ 正则 pattern 序列化往返（`GetPattern().String()` 导出，`FromJSON` 重建，反序列化后 `IsMatch` 不退化）
 - [x] OpenAPI/Swagger 格式导出 — pkg/exporter.OpenAPIExporter 输出 OpenAPI 3.0.3 规范
 
 ### 3. ✅ 更丰富的逻辑类型推断
