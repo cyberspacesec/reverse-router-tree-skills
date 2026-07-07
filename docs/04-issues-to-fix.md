@@ -103,11 +103,11 @@
 - operationId 自动生成，路径按字母序稳定输出
 - 可配置标题/版本/ServerURL/是否包含可选参数
 
-### 3. ~~更多合并策略~~（部分完成，剩余经评估暂缓）
+### 3. ~~更多合并策略~~（部分完成，自定义规则已实现）
 
 - [x] 基于前缀/后缀的合并 — detectPrefixPattern/detectSuffixPattern 已实现，结构化模式匹配不足时回退检测公共前缀/后缀
-- [ ] 基于正则模式的合并 — **经探针验证暂缓**：现有 PatternDetector 已覆盖 12 种结构化模式（uuid/phone/idcard/bankcard/plate/email/ip/date/float/integer/alphanumeric/version）+ 前缀/后缀 + 相似长度突破，真实抓包场景的路径变量几乎都落入这些模式。纯"任意正则合并"会引入误合并风险（把本应保留的固定路径并入变量），边际价值低于误判代价。
-- [ ] 自定义合并规则 — **暂缓**：`MergeConfig`（SiblingMergeThreshold / PatternSimilarityThreshold / SimilarLengthBreakThreshold）已覆盖主要可调维度，自定义规则 API 需权衡侵入性与通用性，待真实上层项目提出明确需求后再设计，避免过度工程。
+- [ ] 基于正则模式的合并 — **经探针验证暂缓**：现有 PatternDetector 已覆盖 12 种结构化模式（uuid/phone/idcard/bankcard/plate/email/ip/date/float/integer/alphanumeric/version）+ 前缀/后缀 + 相似长度突破，真实抓包场景的路径变量几乎都落入这些模式。纯"任意正则合并"会引入误合并风险（把本应保留的固定路径并入变量），边际价值低于误判代价。用户有自定义正则需求可通过 `SetMergeRule` 注入专属规则（见下）。
+- [x] 自定义合并规则 — 已实现 `MergeRule` 接口与 `SetMergeRule`/`GetMergeRule`。用户可注入规则接管"哪些兄弟可合并"的决策，支持 `MergeActionMerge`（合并子集）/`MergeActionSkip`（不合并）/`MergeActionDefault`（放行内置逻辑）三种语义。规则在 `mergeMu` 临界区内调用，无需自行处理并发。`MergeContext` 预带内置检测器算出的 Pattern/Similarity，规则无需重造检测。详见 [自定义合并规则](../website/docs/features/custom-merge-rule.md)。
 
 ### 4. ~~RequestParamNode 必需参数自动推断~~（已完成 ✅）
 

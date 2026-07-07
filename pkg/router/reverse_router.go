@@ -52,6 +52,10 @@ type ReverseRouter struct {
 	inferenceRule inference.TypeInferenceRule
 	chainRule     *inference.ChainTypeInferenceRule
 	mergeConfig   MergeConfig
+	// mergeRule 可选的自定义合并规则。nil 时走内置 findMergeableSiblings 逻辑。
+	// 读写均由 mergeMu 保护（与合并临界区同锁），SetMergeRule/GetMergeRule
+	// 持 mergeMu，findMergeableSiblings 在 checkAndMergeSiblings 临界区内直接读字段。
+	mergeRule     MergeRule
 	bodyParser    *request.BodyParser
 	logger        *RouterLogger
 	stats         *RouterStats
@@ -333,7 +337,7 @@ func (x *ReverseRouter) checkAndMergeSiblings(parent node.Node[node.NodeContext]
 
 	// 尝试找到一组匹配模式的兄弟节点进行合并
 	// 使用选择策略：只合并匹配模式的节点，保留不匹配的固定路径节点
-	mergeable := x.findMergeableSiblings(pathChildren)
+	mergeable := x.findMergeableSiblings(parent, pathChildren)
 	if len(mergeable) < x.mergeConfig.SiblingMergeThreshold {
 		x.stats.MergeSkipped.Add(1)
 		x.logger.Debug("合并跳过：可合并节点不足", "mergeable", len(mergeable), "threshold", x.mergeConfig.SiblingMergeThreshold)
@@ -346,7 +350,7 @@ func (x *ReverseRouter) checkAndMergeSiblings(parent node.Node[node.NodeContext]
 // findMergeableSiblings 从兄弟节点中找到可以被合并的子集
 // 策略：使用模式检测，只返回匹配模式的节点
 // 如果整体匹配率很高（>=0.8），合并全部；否则只合并匹配模式的子集
-func (x *ReverseRouter) findMergeableSiblings(children []node.Node[node.NodeContext]) []node.Node[node.NodeContext] {
+func (x *ReverseRouter) findMergeableSiblings(parent node.Node[node.NodeContext], children []node.Node[node.NodeContext]) []node.Node[node.NodeContext] {
 	if len(children) == 0 {
 		return children
 	}
@@ -354,6 +358,33 @@ func (x *ReverseRouter) findMergeableSiblings(children []node.Node[node.NodeCont
 	values := make([]string, len(children))
 	for i, child := range children {
 		values[i] = child.GetKey()
+	}
+
+	// 若注入了自定义合并规则，先交由它决策（直接读字段：本函数在
+	// checkAndMergeSiblings 的 mergeMu 临界区内被调用，无需再加锁）。
+	if x.mergeRule != nil {
+		detector := NewPatternDetector()
+		patternName, similarity := detector.DetectPattern(values)
+		action, mergeable := x.mergeRule.Decide(MergeContext{
+			Parent:     parent,
+			Siblings:   children,
+			Values:     values,
+			Pattern:    patternName,
+			Similarity: similarity,
+			Config:     x.mergeConfig,
+		})
+		switch action {
+		case MergeActionMerge:
+			if len(mergeable) == 0 {
+				return nil
+			}
+			// 过滤出确属 children 的节点，防止规则返回外部节点。
+			return intersectNodes(children, mergeable)
+		case MergeActionSkip:
+			return nil
+		case MergeActionDefault:
+			// 落到下方内置逻辑
+		}
 	}
 
 	detector := NewPatternDetector()
