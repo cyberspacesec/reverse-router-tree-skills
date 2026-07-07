@@ -103,11 +103,11 @@
 - operationId 自动生成，路径按字母序稳定输出
 - 可配置标题/版本/ServerURL/是否包含可选参数
 
-### 3. ~~更多合并策略~~（部分完成）
+### 3. ~~更多合并策略~~（部分完成，剩余经评估暂缓）
 
 - [x] 基于前缀/后缀的合并 — detectPrefixPattern/detectSuffixPattern 已实现，结构化模式匹配不足时回退检测公共前缀/后缀
-- [ ] 基于正则模式的合并
-- [ ] 自定义合并规则
+- [ ] 基于正则模式的合并 — **经探针验证暂缓**：现有 PatternDetector 已覆盖 12 种结构化模式（uuid/phone/idcard/bankcard/plate/email/ip/date/float/integer/alphanumeric/version）+ 前缀/后缀 + 相似长度突破，真实抓包场景的路径变量几乎都落入这些模式。纯"任意正则合并"会引入误合并风险（把本应保留的固定路径并入变量），边际价值低于误判代价。
+- [ ] 自定义合并规则 — **暂缓**：`MergeConfig`（SiblingMergeThreshold / PatternSimilarityThreshold / SimilarLengthBreakThreshold）已覆盖主要可调维度，自定义规则 API 需权衡侵入性与通用性，待真实上层项目提出明确需求后再设计，避免过度工程。
 
 ### 4. ~~RequestParamNode 必需参数自动推断~~（已完成 ✅）
 
@@ -134,3 +134,12 @@
 据此在 operation 上挂 `security` 声明，并在 `components.securitySchemes` 注册
 `http` 方案定义。仅识别 OpenAPI 3.0.3 标准 http 方案；未识别方案（如自定义 Token）
 回退为普通 header 参数。保持 exporter 无状态可重入。
+
+### 7. ~~并发安全~~（已完成 ✅）
+
+~~ReverseHttpRequest 需支持多 goroutine 并发喂数据。~~
+已实现完整并发安全，`-race` 全量测试通过：
+- **节点类型字段**：`RequestPathVariableNode`/`RequestParamNode` 的 valueType/logicalType/required/multiValue 用 `typeMu sync.RWMutex` 保护；presenceCount 用 `atomic.Int64`
+- **合并临界区**：router 级 `mergeMu sync.Mutex` 串行化 `checkAndMergeSiblings` 的多步操作（读兄弟数→决策→删旧→建变量→迁孙），消除 double-move/丢节点；锁顺序单向 `mergeMu→childMu`，无死锁
+- **覆盖测试**：8 goroutine×300 请求并发命中同一变量+参数节点、50 goroutine 并发数字 ID 触发合并
+- 详见 [并发设计](../website/docs/architecture/concurrency.md)
