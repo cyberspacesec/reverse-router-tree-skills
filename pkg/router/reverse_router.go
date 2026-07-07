@@ -941,25 +941,13 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 		return true
 	}
 
-	currentNode := x.Tree.Root
-	for _, pathSegment := range paths {
-		child := currentNode.FindChildByKey(pathSegment.Path)
-		if child == nil {
-			pathVarChild := currentNode.GetChildByType("request_path_variable")
-			if pathVarChild != nil {
-				currentNode = pathVarChild
-				continue
-			}
-			return true
-		}
-		currentNode = child
-	}
-
 	method := strings.ToUpper(req.Method)
 	if method == "" {
 		method = "GET"
 	}
-	methodChild := currentNode.FindChildByKey(method)
+
+	// 复用 locateMethodNode 定位方法节点（与 FindRouteNode 一致）
+	methodChild := x.locateMethodNode(paths, method)
 	if methodChild == nil {
 		return true
 	}
@@ -1057,6 +1045,29 @@ func (x *ReverseRouter) FindRouteNode(req *request.HttpRequest) (methodNode, con
 		return nil, nil, fmt.Errorf("解析URL失败: %w", err)
 	}
 
+	method := strings.ToUpper(req.Method)
+	if method == "" {
+		method = "GET"
+	}
+	methodNode = x.locateMethodNode(paths, method)
+	if methodNode == nil {
+		return nil, nil, nil // 路径或方法未命中
+	}
+
+	contentType := req.Headers.GetContentType()
+	if contentType != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
+		contentTypeNode = methodNode.FindChildByKey(contentType)
+	}
+
+	return methodNode, contentTypeNode, nil
+}
+
+// locateMethodNode 沿路径段逐级匹配定位方法节点。
+// 命中规则：路径段精确匹配，未命中固定路径时回退到路径变量节点；
+// 方法节点按 key（大写方法名）匹配。路径或方法未命中返回 nil。
+//
+// IsNeedRequest 与 FindRouteNode 共用本方法，保证两者路由定位逻辑一致。
+func (x *ReverseRouter) locateMethodNode(paths []*request.HttpRequestPath, method string) node.Node[node.NodeContext] {
 	currentNode := node.Node[node.NodeContext](x.Tree.Root)
 	for _, pathSegment := range paths {
 		child := currentNode.FindChildByKey(pathSegment.Path)
@@ -1066,26 +1077,11 @@ func (x *ReverseRouter) FindRouteNode(req *request.HttpRequest) (methodNode, con
 				currentNode = pathVarChild
 				continue
 			}
-			return nil, nil, nil // 路径未命中
+			return nil
 		}
 		currentNode = child
 	}
-
-	method := strings.ToUpper(req.Method)
-	if method == "" {
-		method = "GET"
-	}
-	methodNode = currentNode.FindChildByKey(method)
-	if methodNode == nil {
-		return nil, nil, nil // 方法未命中
-	}
-
-	contentType := req.Headers.GetContentType()
-	if contentType != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
-		contentTypeNode = methodNode.FindChildByKey(contentType)
-	}
-
-	return methodNode, contentTypeNode, nil
+	return currentNode.FindChildByKey(method)
 }
 
 // FindNode 是早期预留的通用查找存根，语义不实用（签名与 HttpRequest 查询不匹配），
