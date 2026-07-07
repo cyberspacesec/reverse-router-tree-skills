@@ -27,11 +27,6 @@ var _ TypeInferenceRule = (*PhysicalTypeInferenceRule)(nil)
 //
 // 返回值:
 //   - *PhysicalTypeInferenceRule: 已初始化的推断规则对象
-//
-// 使用示例:
-//
-//	rule := NewPhysicalTypeInferenceRule()
-//	inferredType, err := rule.Infer(someNode)
 func NewPhysicalTypeInferenceRule() *PhysicalTypeInferenceRule {
 	return &PhysicalTypeInferenceRule{}
 }
@@ -47,21 +42,40 @@ func NewPhysicalTypeInferenceRule() *PhysicalTypeInferenceRule {
 // 返回值:
 //   - value.Type: 推断出的数据类型
 //   - error: 如果推断过程中发生错误，则返回错误信息
-func (r *PhysicalTypeInferenceRule) Infer(node node.Node[node.NodeContext]) (value.Type, error) {
-	// 获取节点上下文中的值采样
-	context := node.GetContext()
+func (r *PhysicalTypeInferenceRule) Infer(n node.Node[node.NodeContext]) (value.Type, error) {
+	// 首先尝试从 RequestPathVariableNode 获取 ValueMetric
+	if pathVarNode, ok := n.(*node.RequestPathVariableNode); ok {
+		metric := pathVarNode.GetValueMetric()
+		if metric != nil && !metric.IsEmpty() {
+			return r.inferFromSamples(metric)
+		}
+	}
+
+	// 从 RequestParamNode 获取（参数值类型推断）
+	if paramNode, ok := n.(*node.RequestParamNode); ok {
+		metric := paramNode.GetValueMetric()
+		if metric != nil && !metric.IsEmpty() {
+			return r.inferFromSamples(metric)
+		}
+	}
+
+	// 对于其他节点类型，从上下文中获取值采样
+	context := n.GetContext()
 	if context == nil {
 		// 没有上下文信息，无法推断类型
 		return "", nil
 	}
 
-	// 假设我们从上下文中获取值采样
-	// 在实际实现中，需要从节点上下文中提取值采样数据
-	// TODO: 从节点上下文中提取实际的值采样数据
-	valueMetric := value.NewValueMetric()
+	// 尝试从上下文中获取 ValueMetric
+	// 上下文中可能存储了键为 "__value_metric__" 的 ValueMetric 对象
+	if vm, exists := context.GetKey("__value_metric__"); exists {
+		if metric, ok := vm.(*value.ValueMetric); ok && metric != nil && !metric.IsEmpty() {
+			return r.inferFromSamples(metric)
+		}
+	}
 
-	// 基于采样数据推断物理类型
-	return r.inferFromSamples(valueMetric)
+	// 没有可用的值采样数据
+	return value.Type(value.PhysicalTypeString), nil
 }
 
 // inferFromSamples 根据值采样推断物理类型
@@ -78,10 +92,6 @@ func (r *PhysicalTypeInferenceRule) Infer(node node.Node[node.NodeContext]) (val
 // 返回值:
 //   - value.Type: 推断出的数据类型
 //   - error: 如果推断过程中发生错误，则返回错误信息
-//
-// 特殊情况:
-//   - 如果度量对象为nil或没有采样值，返回null类型
-//   - 如果无法确定主导类型，默认返回string类型（最安全的选择）
 func (r *PhysicalTypeInferenceRule) inferFromSamples(metric *value.ValueMetric) (value.Type, error) {
 	if metric == nil || metric.IsEmpty() {
 		// 没有样本数据，无法进行有效推断，返回null类型
@@ -101,89 +111,60 @@ func (r *PhysicalTypeInferenceRule) inferFromSamples(metric *value.ValueMetric) 
 }
 
 // initializeTypeMatches 初始化类型匹配计数映射
-//
-// 为所有支持的物理类型创建一个初始化为零的计数映射，用于后续统计每种类型的匹配次数。
-//
-// 返回值:
-//   - map[value.PhysicalType]int: 初始化的类型计数映射
 func (r *PhysicalTypeInferenceRule) initializeTypeMatches() map[value.PhysicalType]int {
 	return map[value.PhysicalType]int{
-		value.PhysicalTypeInteger: 0, // 整数类型
-		value.PhysicalTypeFloat:   0, // 浮点数类型
-		value.PhysicalTypeBoolean: 0, // 布尔类型
-		value.PhysicalTypeString:  0, // 字符串类型
-		value.PhysicalTypeObject:  0, // 对象类型
-		value.PhysicalTypeArray:   0, // 数组类型
-		value.PhysicalTypeNull:    0, // null类型
+		value.PhysicalTypeInteger: 0,
+		value.PhysicalTypeFloat:   0,
+		value.PhysicalTypeBoolean: 0,
+		value.PhysicalTypeString:  0,
+		value.PhysicalTypeObject:  0,
+		value.PhysicalTypeArray:   0,
+		value.PhysicalTypeNull:    0,
 	}
 }
 
 // analyzeValues 分析所有值并统计每种类型的匹配次数
-//
-// 遍历所有采样值，对每个值执行类型匹配，并累计每种类型的匹配计数。
-// 同时返回总样本数，用于后续计算比例和确定主导类型。
-//
-// 参数:
-//   - metric: 包含值采样数据的度量对象
-//   - typeMatches: 用于累计各类型匹配次数的映射
-//
-// 返回值:
-//   - int: 处理的总样本数
 func (r *PhysicalTypeInferenceRule) analyzeValues(metric *value.ValueMetric, typeMatches map[value.PhysicalType]int) int {
 	totalSamples := 0
 
-	// 遍历所有采样值并尝试匹配类型
-	for val, count := range metric.GetAllValues() {
+	metric.ForEachValue(func(val string, count int) bool {
 		totalSamples += count
-		// 对每个唯一的值执行类型匹配，并加权计数
 		r.matchValueType(val, count, typeMatches)
-	}
+		return true
+	})
 
 	return totalSamples
 }
 
 // matchValueType 匹配单个值的类型并更新计数
-//
-// 该方法按照一定的优先级顺序检测值的类型：
-// 1. 首先检测空值（null）
-// 2. 然后检测布尔值
-// 3. 然后检测整数值
-// 4. 然后检测浮点数值
-// 5. 然后检测数组和对象
-// 6. 如果以上都不匹配，则归类为字符串
-//
-// 注意: 顺序很重要，因为某些类型检测可能存在重叠（例如，整数也可能匹配浮点数格式）
-//
-// 参数:
-//   - val: 要分析的单个值
-//   - count: 该值在样本中出现的次数
-//   - typeMatches: 用于累计各类型匹配次数的映射
 func (r *PhysicalTypeInferenceRule) matchValueType(val string, count int, typeMatches map[value.PhysicalType]int) {
-	// 检测空值（优先级最高）
 	if r.isNull(val) {
 		typeMatches[value.PhysicalTypeNull] += count
 		return
 	}
 
-	// 检测布尔值（优先级次之）
 	if r.isBoolean(val) {
 		typeMatches[value.PhysicalTypeBoolean] += count
 		return
 	}
 
-	// 检测整数（优先于浮点数，因为整数可以表示为浮点数，但反之不一定）
 	if r.isInteger(val) {
 		typeMatches[value.PhysicalTypeInteger] += count
 		return
 	}
 
-	// 检测浮点数
+	// 十六进制数值（0x/0X 前缀）识别为 integer
+	// 例如：0x1A, 0xFF, 0xDEADBEEF
+	if r.isHexInteger(val) {
+		typeMatches[value.PhysicalTypeInteger] += count
+		return
+	}
+
 	if r.isFloat(val) {
 		typeMatches[value.PhysicalTypeFloat] += count
 		return
 	}
 
-	// 检测数组和对象（基于简单的语法检测）
 	if r.isArray(val) {
 		typeMatches[value.PhysicalTypeArray] += count
 		return
@@ -194,80 +175,71 @@ func (r *PhysicalTypeInferenceRule) matchValueType(val string, count int, typeMa
 		return
 	}
 
-	// 默认为字符串（兜底类型，如果以上所有类型都不匹配）
 	typeMatches[value.PhysicalTypeString] += count
 }
 
+// isHexInteger 检测值是否为十六进制整数
+// 格式：0x 或 0X 前缀 + 至少一位十六进制数字（0-9, a-f, A-F）
+// 例如：0x1A, 0XFF, 0xDEADBEEF
+func (r *PhysicalTypeInferenceRule) isHexInteger(val string) bool {
+	if len(val) < 3 { // 至少 "0x" + 1位数字
+		return false
+	}
+
+	// 必须以 0x 或 0X 开头
+	if val[0] != '0' || (val[1] != 'x' && val[1] != 'X') {
+		return false
+	}
+
+	// 剩余部分必须是十六进制数字
+	for _, c := range val[2:] {
+		if !isHexDigit(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// isHexDigit 判断字符是否为十六进制数字
+func isHexDigit(c rune) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
 // isNull 检测值是否为空
-//
-// 判断一个字符串值是否代表null值。
-// 以下情况被视为null:
-// - 空字符串 ("")
-// - 字符串 "null" (不区分大小写)
-//
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值表示null则返回true，否则返回false
 func (r *PhysicalTypeInferenceRule) isNull(val string) bool {
 	return val == "" || val == "null" || val == "NULL"
 }
 
 // isBoolean 检测值是否为布尔值
-//
-// 判断一个字符串值是否代表布尔值。
-// 仅"true"和"false"（不区分大小写）被视为布尔值。
-//
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值表示布尔值则返回true，否则返回false
-//
-// 示例:
-//
-//	"true" -> 布尔值
-//	"TRUE" -> 布尔值
-//	"false" -> 布尔值
-//	"False" -> 不是布尔值（当前实现不支持首字母大写）
 func (r *PhysicalTypeInferenceRule) isBoolean(val string) bool {
 	return val == "true" || val == "false" || val == "TRUE" || val == "FALSE"
 }
 
 // isInteger 检测值是否为整数
 //
-// 判断一个字符串值是否代表整数。
-// 整数定义为可选的符号(+/-)后跟一个或多个数字(0-9)。
+// 长度上限规则：纯数字串长度 >= 16 位时降级为 string，不再识别为 integer。
+// 理由：
+//   - 16-19 位是银行卡号长度，18 位是身份证号长度，>19 位是超长业务ID
+//   - 这些长度的数字串本质是标识符而非算术数值，业务系统普遍以 string 存储
+//   - int64 最大值 9223372036854775807（19位），16位以上数字串存在溢出风险
+//   - 逻辑层（LogicalTypeInferenceRule）仍会识别 idcard/bankcard 等语义类型
 //
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值表示整数则返回true，否则返回false
-//
-// 示例:
-//
-//	"123" -> 整数
-//	"+123" -> 整数
-//	"-123" -> 整数
-//	"0" -> 整数
-//	"123.0" -> 不是整数（有小数点）
-//	"a123" -> 不是整数（含非数字字符）
-//	"" -> 不是整数（空字符串）
+// 因此 16 位是"算术整数"与"标识符数字串"的合理分界线。
 func (r *PhysicalTypeInferenceRule) isInteger(val string) bool {
 	if len(val) == 0 {
-		// 空字符串不是整数
+		return false
+	}
+
+	// 超长数字串降级为 string（标识符语义，非算术整数）
+	if len(val) >= 16 {
 		return false
 	}
 
 	for i, c := range val {
 		if i == 0 && (c == '+' || c == '-') {
-			// 第一个字符是符号位（+或-）是允许的
 			continue
 		}
 		if c < '0' || c > '9' {
-			// 只允许数字字符0-9
 			return false
 		}
 	}
@@ -275,140 +247,130 @@ func (r *PhysicalTypeInferenceRule) isInteger(val string) bool {
 }
 
 // isFloat 检测值是否为浮点数
-//
-// 判断一个字符串值是否代表浮点数。
-// 浮点数定义为可选的符号(+/-)后跟数字序列，中间包含一个小数点。
-//
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值表示浮点数则返回true，否则返回false
-//
-// 示例:
-//
-//	"123.45" -> 浮点数
-//	"+123.45" -> 浮点数
-//	"-123.45" -> 浮点数
-//	"123" -> 不是浮点数（没有小数点）
-//	"123." -> 浮点数（虽然小数部分为空，但有小数点）
-//	".45" -> 浮点数（整数部分为空，但有小数点）
-//	"123.45.67" -> 不是浮点数（多个小数点）
-//	"a123.45" -> 不是浮点数（含非法字符）
-//	"" -> 不是浮点数（空字符串）
+// 支持以下格式：
+//   - 标准小数：12.34, .5, 3.
+//   - 科学计数法：1e5, 1.5e3, 2E-3, 1.5E+10
 func (r *PhysicalTypeInferenceRule) isFloat(val string) bool {
 	if len(val) == 0 {
-		// 空字符串不是浮点数
 		return false
+	}
+
+	// 先尝试科学计数法：包含 e 或 E，且整体是合法数值
+	if r.isScientificNotation(val) {
+		return true
 	}
 
 	hasDot := false
 	for i, c := range val {
 		if i == 0 && (c == '+' || c == '-') {
-			// 第一个字符是符号位（+或-）是允许的
 			continue
 		}
 		if c == '.' {
 			if hasDot {
-				// 已经有一个小数点了，多个小数点是不允许的
 				return false
 			}
 			hasDot = true
 			continue
 		}
 		if c < '0' || c > '9' {
-			// 只允许数字字符0-9和前面处理过的小数点
 			return false
 		}
 	}
 
-	// 必须有小数点才认为是浮点数（这是区分整数和浮点数的关键）
 	return hasDot
 }
 
+// isScientificNotation 检测值是否为科学计数法表示的数值
+// 格式：[+-]?数字[.数字]?[eE][+-]?数字
+// 例如：1e5, 1.5e3, 2E-3, 1.5E+10, -3.14e2
+func (r *PhysicalTypeInferenceRule) isScientificNotation(val string) bool {
+	if len(val) == 0 {
+		return false
+	}
+
+	// 查找 e 或 E 的位置（不在首位和末位）
+	eIndex := -1
+	for i, c := range val {
+		if c == 'e' || c == 'E' {
+			if eIndex != -1 {
+				return false // 多个 e/E
+			}
+			eIndex = i
+		}
+	}
+	if eIndex <= 0 || eIndex >= len(val)-1 {
+		return false // e/E 必须在中间
+	}
+
+	// e 前面部分：[+-]?数字[.数字]?（可以是整数或小数）
+	mantissa := val[:eIndex]
+	if !r.isNumericPart(mantissa, true) {
+		return false
+	}
+
+	// e 后面部分：[+-]?数字（必须是整数）
+	exponent := val[eIndex+1:]
+	if !r.isNumericPart(exponent, false) {
+		return false
+	}
+
+	return true
+}
+
+// isNumericPart 检查数值的某一部分是否合法
+// allowDot: 是否允许小数点（尾数允许，指数不允许）
+func (r *PhysicalTypeInferenceRule) isNumericPart(s string, allowDot bool) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	hasDigit := false
+	hasDot := false
+	for i, c := range s {
+		if i == 0 && (c == '+' || c == '-') {
+			// 符号只能在首位，且后面必须有内容
+			if len(s) == 1 {
+				return false
+			}
+			continue
+		}
+		if c == '.' {
+			if !allowDot || hasDot {
+				return false
+			}
+			hasDot = true
+			continue
+		}
+		if c < '0' || c > '9' {
+			return false
+		}
+		hasDigit = true
+	}
+	return hasDigit
+}
+
 // isArray 检测值是否为数组
-//
-// 判断一个字符串值是否代表JSON数组。
-// 目前仅做简单的语法检测：以'['开头，以']'结尾的字符串。
-// 注意：这是一个简化的检测，不验证内部结构的有效性。
-//
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值看起来像数组则返回true，否则返回false
-//
-// 示例:
-//
-//	"[]" -> 数组
-//	"[1,2,3]" -> 数组
-//	"[\"a\",\"b\"]" -> 数组
-//	"[" -> 不是数组（没有结束括号）
-//	"a[]" -> 不是数组（有前缀字符）
-//	"" -> 不是数组（空字符串）
-//
-// TODO: 考虑实现更严格的JSON数组验证
 func (r *PhysicalTypeInferenceRule) isArray(val string) bool {
 	return len(val) >= 2 && val[0] == '[' && val[len(val)-1] == ']'
 }
 
 // isObject 检测值是否为对象
-//
-// 判断一个字符串值是否代表JSON对象。
-// 目前仅做简单的语法检测：以'{'开头，以'}'结尾的字符串。
-// 注意：这是一个简化的检测，不验证内部结构的有效性。
-//
-// 参数:
-//   - val: 要检查的字符串值
-//
-// 返回值:
-//   - bool: 如果值看起来像对象则返回true，否则返回false
-//
-// 示例:
-//
-//	"{}" -> 对象
-//	"{\"a\":1}" -> 对象
-//	"{\"a\":{\"b\":2}}" -> 对象
-//	"{" -> 不是对象（没有结束括号）
-//	"a{}" -> 不是对象（有前缀字符）
-//	"" -> 不是对象（空字符串）
-//
-// TODO: 考虑实现更严格的JSON对象验证
 func (r *PhysicalTypeInferenceRule) isObject(val string) bool {
 	return len(val) >= 2 && val[0] == '{' && val[len(val)-1] == '}'
 }
 
 // findDominantType 找出匹配次数最多的类型
-//
-// 分析类型匹配统计，确定占主导地位的数据类型。
-// 如果有多个类型具有相同的匹配次数，将选择在typeMatches映射中先出现的类型。
-// 如果没有匹配或无法确定，默认返回字符串类型（作为最通用的类型）。
-//
-// 参数:
-//   - typeMatches: 各类型的匹配计数映射
-//   - totalSamples: 处理的总样本数
-//
-// 返回值:
-//   - value.PhysicalType: 确定的主导类型
-//
-// 特殊情况:
-//   - 如果totalSamples为0（没有样本），返回string类型
-//   - 如果dominantType为空（可能因为映射为空），返回string类型
 func (r *PhysicalTypeInferenceRule) findDominantType(typeMatches map[value.PhysicalType]int, totalSamples int) value.PhysicalType {
 	var dominantType value.PhysicalType
 	maxMatches := 0
 
-	// 遍历所有类型匹配计数，找出匹配次数最多的类型
 	for pType, matches := range typeMatches {
 		if matches > maxMatches {
 			maxMatches = matches
 			dominantType = pType
 		}
-		// 注意：如果有相同匹配次数的类型，将保留先找到的类型
 	}
 
-	// 安全防护：如果没有样本或无法确定类型，默认为字符串类型
-	// 字符串类型是最通用的类型，可以表示任何值，所以是最安全的默认选择
 	if totalSamples == 0 || dominantType == "" {
 		dominantType = value.PhysicalTypeString
 	}
