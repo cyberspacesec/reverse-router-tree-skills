@@ -2,130 +2,135 @@
 
 > 优先级从高到低排列
 
-## P0 - 编译错误（必须先修复）
+## ~~P0 - 编译错误（已全部修复）~~
 
-### 1. RequestPathVariableNode 结构体字段不匹配
+所有 P0 编译错误已修复。
 
-**文件**：`pkg/node/request_path_variable_node.go`
+## ~~P1 - 功能Bug（已全部修复）~~
 
-**问题**：
-- 结构体声明了 `value value.Value` 字段
-- 但构造函数 `NewRequestPathVariableNode` 中初始化了 `valueMetric`、`valueType`、`inferFunc` 三个不存在的字段
-- 结构体缺少这三个字段的声明
+所有 P1 功能 bug 已修复。
 
-**修复方案**：
-```go
-type RequestPathVariableNode struct {
-    *BaseNode[NodeContext]
+## ~~P2 - 核心功能未实现（已全部实现）~~
 
-    // 值统计，用于记录观察到的路径变量值
-    valueMetric *value.ValueMetric
-    // 推断出的值类型
-    valueType value.Type
-    // 类型推断函数
-    inferFunc func(node Node[NodeContext]) (value.Type, error)
-}
-```
+所有 P2 核心功能已实现。
 
-同时需要调整构造函数的签名和实现，使其与测试文件兼容。
+## ~~P3 - 改进项（已全部完成）~~
 
-### 2. 测试文件调用签名不匹配
+### 1. ✅ RequestParamNode.IsMatch() 对非必需参数过于宽松
 
-**文件**：`pkg/node/request_nodes_test.go`
+**文件**：`pkg/node/request_param_node.go`
 
-**问题**：
-- 测试中 `NewRequestPathVariableNode("id", "[0-9]+")` 传入正则字符串
-- 实现中 `NewRequestPathVariableNode(position, inferFunc)` 接受位置标识和推断函数
+**修复**：
+- 可选参数只在参数名实际出现时才匹配
+- 精确参数名匹配（避免 page 匹配 page_size）
+- 添加 ValueMetric 用于值观察和类型推断
 
-**修复方案**：重新设计 RequestPathVariableNode 的构造函数，可能需要：
-- 支持正则模式匹配
-- 或者调整测试用例使用推断函数
-
-## P1 - 功能Bug
-
-### 3. RequestPathRouter 类型断言bug
-
-**文件**：`pkg/router/request_path_router.go`
-
-**问题**：
-```go
-requestPathNode, ok := node.(node.RequestPathNode)  // 值类型断言
-```
-应该是：
-```go
-requestPathNode, ok := node.(*node.RequestPathNode)  // 指针类型断言
-```
-
-### 4. RequestPathRouter 返回值类型错误
-
-**文件**：`pkg/router/request_path_router.go`
-
-**问题**：空路径时返回 `requestPathNode.GetKey() == ""` (bool)，但函数签名要求返回 `Node`。
-
-### 5. RequestParamRouter 类型断言bug
-
-**文件**：`pkg/router/request_param_router.go`
-
-同问题3，值类型断言应改为指针类型断言。
-
-### 6. RequestContentTypeRouter 复制了错误的代码
-
-**文件**：`pkg/router/request_content_type_router.go`
-
-**问题**：完全复制了RequestPathRouter的代码，没有实现Content-Type路由逻辑。
-
-## P2 - 核心功能未实现
-
-### 7. ReverseRouter.ReverseHttpRequest() 未实现
-
-**文件**：`pkg/router/reverse_router.go`
-
-这是项目的核心方法，目前只有注释描述算法思路。需要实现：
-- 将HTTP请求解析为路径段和参数
-- 在路由树中查找或创建对应节点
-- 通过兄弟节点数量检测识别路径变量
-- 合并相似路径为路径变量节点
-- 推断路径变量的类型
-
-### 8. ReverseRouter.IsNeedRequest() 未实现
-
-**文件**：`pkg/router/reverse_router.go`
-
-判断某个URL是否还需要请求。逻辑：
-- 如果能在路由树上找到对应节点，且该节点已被请求过足够多次，则不再需要请求
-
-### 9. Tree.AddNode() 未实现
+### 2. 🔶 路由树的序列化/反序列化（部分完成）
 
 **文件**：`pkg/tree/tree.go`
 
-目前只返回nil。
+**已完成**：
+- ✅ JSON 导出/导入基本实现
+- ✅ 路径变量类型信息导出
+- ✅ 参数 required 信息导出
 
-### 10. PhysicalTypeInferenceRule.Infer() 未连接节点上下文
+**待完善**：
+- [ ] 完整的逻辑类型信息导出
+- [x] OpenAPI/Swagger 格式导出 — pkg/exporter.OpenAPIExporter 输出 OpenAPI 3.0.3 规范
 
-**文件**：`pkg/inference/physical_type_inference_rule.go`
+### 3. ✅ 更丰富的逻辑类型推断
 
-Infer方法中从节点上下文获取值采样是TODO，目前使用空的ValueMetric。
+**文件**：`pkg/inference/logical_type_inference_rule.go`
 
-## P3 - 改进项
+**已完成**：
+- ✅ LogicalTypeInferenceRule 完整实现
+- ✅ UUID、IP地址、邮箱、日期、时间、日期时间、URL、JSON、XML 模式检测
+- ✅ 百分比、货币、精确小数等数值扩展类型
+- ✅ 枚举值检测
+- ✅ ChainTypeInferenceRule 链式组合规则
 
-### 11. ValueMetric 缺少并发安全保护
+### 4. ✅ 路径参数识别（key=value格式）
 
-**文件**：`pkg/value/value.go`
+**文件**：`pkg/request/http_request_path.go`
 
-valueMap 没有锁保护，并发写入可能出问题。
+**已完成**：
+- ✅ `IsPathParam()` 检测路径段中的 key=value 格式
+- ✅ 合法参数名校验
+- ✅ ReverseHttpRequest 集成路径参数处理
 
-### 12. RequestPathVariableNode 需要更丰富的类型推断
+### 5. ✅ 合并阈值可配置化
 
-当前只有简单的字符串类型推断，需要支持：
-- 数字ID识别（纯数字 → integer）
-- UUID识别（匹配UUID格式）
-- 日期识别（匹配日期格式）
-- 正则模式匹配
+**文件**：`pkg/router/reverse_router.go`
 
-### 13. RequestParamNode.IsMatch() 对非必需参数过于宽松
+**已完成**：
+- ✅ MergeConfig 结构体（SiblingMergeThreshold + PatternSimilarityThreshold）
+- ✅ SetMergeConfig() / GetMergeConfig() 方法
+- ✅ PatternDetector 模式检测器
 
-当前实现：如果参数不是必需的，任何查询字符串都返回true。这可能导致误匹配。
+### 6. ✅ 路径变量合并的回退机制（已满足：共存式软回退）
 
-### 14. 缺少路由树的序列化/反序列化
+**原问题**：合并后的路径变量节点不能"分裂"回多个固定节点
 
-路由树需要能够持久化存储，当前只有BaseNode的基本序列化。
+**现状分析**：当前实现采用"共存式软回退"，已实质满足需求：
+- 变量节点建立后，不符合模式的新值（如 `special`）作为固定路径与之共存，不破坏已有合并
+- 符合模式的新值（如 `205`）仍正确归入变量节点
+- 固定路径与变量节点可同层共存（如 `{users_id}` + `list` + `create`）
+- 选择性合并在固定路径已存在时仍能合并匹配的子集
+
+**不实现硬回退的理由**：拆分已合并的变量节点需要保留全部原始值历史、重做模式检测，
+风险高且触发场景罕见（需要"先大量数字合并、后证明全部是固定路径"的极端顺序）。
+当前软回退已覆盖现实业务中的绝大多数情况，硬回退属过度工程。
+
+如未来出现明确的硬回退需求，可考虑：保留原始值统计 + 当固定路径占比超过阈值时拆分变量节点。
+
+## P4 - 未来增强
+
+### 1. ~~合并回退机制~~（已满足：共存式软回退 ✅）
+
+~~当新观察到的值不符合变量模式时，支持合并回退。~~
+已采用共存式软回退：不符合模式的新值作为固定路径与变量节点共存，不破坏已有合并。
+不实现硬回退（拆分已合并节点），理由是风险高、场景罕见，属过度工程。详见上文 P3-6。
+
+### 2. ~~OpenAPI/Swagger 导出~~（已完成 ✅）
+
+~~将路由树导出为 OpenAPI 规范格式。~~
+已实现 `pkg/exporter.OpenAPIExporter`，输出 OpenAPI 3.0.3 规范：
+- 路径变量还原为 `{var}`，固定路径保留
+- query/path/header/cookie 四类参数，路径变量 required=true
+- POST 请求体生成 object schema（含 properties/required）
+- Content-Type 去 charset 规范化
+- 物理/逻辑类型映射为 schema type+format
+- operationId 自动生成，路径按字母序稳定输出
+- 可配置标题/版本/ServerURL/是否包含可选参数
+
+### 3. ~~更多合并策略~~（部分完成）
+
+- [x] 基于前缀/后缀的合并 — detectPrefixPattern/detectSuffixPattern 已实现，结构化模式匹配不足时回退检测公共前缀/后缀
+- [ ] 基于正则模式的合并
+- [ ] 自定义合并规则
+
+### 4. ~~RequestParamNode 必需参数自动推断~~（已完成 ✅）
+
+~~根据参数出现频率自动推断是否为必需参数。~~
+已实现 InferRequiredParams，基于 presenceCount/总请求次数 >= 0.9 判定必需，样本不足保持默认。
+
+### 5. ~~日志和可观测性~~（已完成 ✅）
+
+~~添加结构化日志，支持调试和监控。~~
+已实现两层可观测性：
+- **RouterLogger**：封装 log/slog 的结构化日志，五级（Debug/Info/Warn/Error/Off），
+  默认 Warn 级别保持低噪音。关键决策埋点：请求处理、路径变量识别、模式检测、
+  参数创建、类型推断、必需性推断、合并决策（尝试/跳过）、异常 body 兼容、错误。
+  可配置输出流，nil 安全。
+- **RouterStats**：11 项 atomic 线程安全计数指标（请求数、路径变量数、模式检测数、
+  参数数、类型推断数、body 参数数、必需参数数、合并尝试/跳过数、警告/错误数）。
+  `GetStats()` 返回快照，支持 JSON 序列化，`Reset()` 清零。
+- 通过 `SetLogger`/`SetLogLevel`/`GetStats`/`ResetStats` 配置。
+
+### 6. ~~OpenAPI 安全方案（securitySchemes）~~（已完成 ✅）
+
+~~从抓包流量推断鉴权方案，导出 OpenAPI securitySchemes。~~
+已实现：router 规范化 Authorization 头（提取 Bearer/Basic/Digest 方案名），exporter
+据此在 operation 上挂 `security` 声明，并在 `components.securitySchemes` 注册
+`http` 方案定义。仅识别 OpenAPI 3.0.3 标准 http 方案；未识别方案（如自定义 Token）
+回退为普通 header 参数。保持 exporter 无状态可重入。
