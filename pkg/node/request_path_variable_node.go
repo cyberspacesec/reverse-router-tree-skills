@@ -2,6 +2,8 @@ package node
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/value"
 )
@@ -12,38 +14,51 @@ import (
 type RequestPathVariableNode struct {
 	*BaseNode[NodeContext]
 
-	// 这个路径节点的值
-	value value.Value
+	// 值统计，用于记录观察到的路径变量值
+	valueMetric *value.ValueMetric
+	// 推断出的值类型（物理类型）
+	valueType value.Type
+	// 推断出的逻辑类型（在物理类型之上的语义类型）
+	logicalType value.LogicalType
+	// 类型推断函数
+	inferFunc func(node Node[NodeContext]) (value.Type, error)
+	// 可选的正则模式，用于匹配路径变量值
+	pattern *regexp.Regexp
 }
 
 // NewRequestPathVariableNode 创建一个新的路径变量节点
 // 该节点初始没有预定义的名称或模式，而是随着流量分析逐步建立模式
 //
 // 参数:
-//   - position: 在路径中的位置标识符（如 "segment2" 表示路径的第二段）
-//   - inferFunc: 可选的类型推断函数，如果为nil则使用默认推断
+//   - position: 在路径中的位置标识符（如 "id" 表示用户ID变量）
+//   - patternStr: 可选的正则模式字符串，用于匹配路径变量值。空字符串表示匹配任何非空值
 //
 // 返回:
 //   - *RequestPathVariableNode: 新创建的路径变量节点
-func NewRequestPathVariableNode(position string, inferFunc func(node Node[NodeContext]) (value.Type, error)) *RequestPathVariableNode {
+func NewRequestPathVariableNode(position string, patternStr string) *RequestPathVariableNode {
 	context := NewBaseNodeContext()
-	// 初始没有明确的key或value，它们会根据观察到的流量推断
+	// 初始没有明确的value，它们会根据观察到的流量推断
 	baseNode := NewBaseNode[NodeContext]("request_path_variable", position, "", context)
 
-	// 如果没有提供推断函数，使用默认的空推断函数
-	if inferFunc == nil {
-		inferFunc = func(node Node[NodeContext]) (value.Type, error) {
-			// 默认简单推断，只返回字符串类型
-			return value.Type(value.PhysicalTypeString), nil
-		}
-	}
-
-	return &RequestPathVariableNode{
+	node := &RequestPathVariableNode{
 		BaseNode:    baseNode,
 		valueMetric: value.NewValueMetric(),
 		valueType:   value.Type(value.PhysicalTypeString), // 默认为字符串类型
-		inferFunc:   inferFunc,
+		logicalType: value.LogicalTypeString,              // 默认逻辑类型为 string
+		inferFunc:   nil,                                   // 将在需要时设置
+		pattern:     nil,
 	}
+
+	// 如果提供了正则模式，编译并设置
+	if patternStr != "" {
+		re, err := regexp.Compile(patternStr)
+		if err == nil {
+			node.pattern = re
+		}
+		// 如果编译失败，忽略模式，节点将匹配任何非空值
+	}
+
+	return node
 }
 
 // SetTypeInferenceFunc 设置类型推断函数
@@ -58,7 +73,10 @@ func (n *RequestPathVariableNode) SetTypeInferenceFunc(inferFunc func(node Node[
 }
 
 // IsMatch 判断请求的路径段是否匹配
-// 在黑盒分析模式下，我们通常认为变量节点可以匹配任何非空路径段
+// 在黑盒分析模式下，如果有正则模式则按模式匹配，否则认为变量节点可以匹配任何非空路径段
+// 但会排除一些明显不是变量的路径段：
+//   - 包含文件扩展名的段（如 data.json, style.css）除非模式明确匹配
+//   - 纯字母的常见固定路径词（如 api, users, admin）除非模式明确匹配
 //
 // 参数:
 //   - pathSegment: URL路径的一个段
@@ -71,23 +89,58 @@ func (n *RequestPathVariableNode) IsMatch(pathSegment string) bool {
 		return false
 	}
 
+	// 如果有正则模式，使用模式匹配（严格匹配）
+	if n.pattern != nil {
+		return n.pattern.MatchString(pathSegment)
+	}
+
+	// 没有模式时，使用启发式规则判断
+	// 排除明显是固定路径的段
+
+	// 排除包含常见文件扩展名的段（如 .json, .xml, .html, .css, .js, .png 等）
+	// 这些通常是固定资源路径，不是变量
+	if hasFileExtension(pathSegment) {
+		return false
+	}
+
 	// 记录观察到的值，用于后续类型推断
 	n.ObserveValue(pathSegment)
 
 	return true
 }
 
-// ObserveValue 记录观察到的路径段值，用于模式推断
+// hasFileExtension 检查路径段是否包含文件扩展名
+// 常见的静态资源扩展名
+func hasFileExtension(segment string) bool {
+	// 常见的静态文件扩展名
+	staticExtensions := []string{
+		".html", ".htm", ".css", ".js", ".json", ".xml",
+		".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+		".pdf", ".doc", ".docx", ".xls", ".xlsx",
+		".txt", ".csv", ".zip", ".tar", ".gz",
+		".mp3", ".mp4", ".avi", ".mov",
+		".woff", ".woff2", ".ttf", ".eot",
+	}
+
+	lower := strings.ToLower(segment)
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// ObserveValue 观察一个路径段值，累积到值统计中用于后续类型推断。
+//
+// 注意：本方法只收集值，不触发类型推断。类型推断由 router 在调用点用
+// chainRule.InferPhysicalAndLogical 统一回填物理+逻辑类型（与 RequestParamNode
+// 的处理模式一致），避免单一 Infer 把逻辑类型串（如 "uuid"）污染到物理类型字段。
 //
 // 参数:
-//   - value: 观察到的路径段值
+//   - val: 观察到的路径段值
 func (n *RequestPathVariableNode) ObserveValue(val string) {
 	n.valueMetric.AddValue(val)
-
-	// 每当累积足够的样本时，重新推断类型
-	if n.ShouldUpdateInference() {
-		n.UpdateTypeInference()
-	}
 }
 
 // ShouldUpdateInference 判断是否应该更新类型推断
@@ -123,6 +176,24 @@ func (n *RequestPathVariableNode) GetValueType() value.Type {
 	return n.valueType
 }
 
+// SetType 设置值类型
+func (n *RequestPathVariableNode) SetType(t value.Type) {
+	n.valueType = t
+}
+
+// GetLogicalType 获取推断出的逻辑类型
+//
+// 返回:
+//   - value.LogicalType: 推断出的逻辑类型
+func (n *RequestPathVariableNode) GetLogicalType() value.LogicalType {
+	return n.logicalType
+}
+
+// SetLogicalType 设置逻辑类型
+func (n *RequestPathVariableNode) SetLogicalType(lt value.LogicalType) {
+	n.logicalType = lt
+}
+
 // GetPositionIdentifier 获取变量在路径中的位置标识符
 //
 // 返回:
@@ -137,6 +208,14 @@ func (n *RequestPathVariableNode) GetPositionIdentifier() string {
 //   - *value.ValueMetric: 值统计信息
 func (n *RequestPathVariableNode) GetValueMetric() *value.ValueMetric {
 	return n.valueMetric
+}
+
+// GetPattern 获取正则模式
+//
+// 返回:
+//   - *regexp.Regexp: 正则模式，如果没有设置则返回nil
+func (n *RequestPathVariableNode) GetPattern() *regexp.Regexp {
+	return n.pattern
 }
 
 // ExtractValue 从路径段中提取变量值并存储在上下文中
@@ -160,11 +239,15 @@ func (n *RequestPathVariableNode) ExtractValue(pathSegment string) bool {
 // String 返回变量节点的字符串表示
 //
 // 返回:
-//   - string: 变量节点的字符串表示，格式为 "{POSITION:TYPE}"
+//   - string: 变量节点的字符串表示，格式为 "{POSITION:PATTERN}" 或 "{POSITION:TYPE}"
 func (n *RequestPathVariableNode) String() string {
 	position := n.GetPositionIdentifier()
-	typeStr := string(n.GetValueType())
 
+	if n.pattern != nil {
+		return fmt.Sprintf("{%s:%s}", position, n.pattern.String())
+	}
+
+	typeStr := string(n.GetValueType())
 	return fmt.Sprintf("{%s:%s}", position, typeStr)
 }
 
