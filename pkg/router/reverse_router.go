@@ -573,13 +573,6 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 	// 创建路径变量节点
 	varNode := node.NewRequestPathVariableNode(varName, patternStr)
 
-	// 设置类型推断函数
-	if x.inferenceRule != nil {
-		varNode.SetTypeInferenceFunc(func(n node.Node[node.NodeContext]) (value.Type, error) {
-			return x.inferenceRule.Infer(n)
-		})
-	}
-
 	// 收集所有观察到的值并合并子树
 	for _, child := range children {
 		varNode.ObserveValue(child.GetKey())

@@ -20,8 +20,6 @@ type RequestPathVariableNode struct {
 	valueType value.Type
 	// 推断出的逻辑类型（在物理类型之上的语义类型）
 	logicalType value.LogicalType
-	// 类型推断函数
-	inferFunc func(node Node[NodeContext]) (value.Type, error)
 	// 可选的正则模式，用于匹配路径变量值
 	pattern *regexp.Regexp
 }
@@ -45,7 +43,6 @@ func NewRequestPathVariableNode(position string, patternStr string) *RequestPath
 		valueMetric: value.NewValueMetric(),
 		valueType:   value.Type(value.PhysicalTypeString), // 默认为字符串类型
 		logicalType: value.LogicalTypeString,              // 默认逻辑类型为 string
-		inferFunc:   nil,                                   // 将在需要时设置
 		pattern:     nil,
 	}
 
@@ -59,17 +56,6 @@ func NewRequestPathVariableNode(position string, patternStr string) *RequestPath
 	}
 
 	return node
-}
-
-// SetTypeInferenceFunc 设置类型推断函数
-// 这允许在创建节点后更改类型推断的方式
-//
-// 参数:
-//   - inferFunc: 用于推断值类型的函数
-func (n *RequestPathVariableNode) SetTypeInferenceFunc(inferFunc func(node Node[NodeContext]) (value.Type, error)) {
-	if inferFunc != nil {
-		n.inferFunc = inferFunc
-	}
 }
 
 // IsMatch 判断请求的路径段是否匹配
@@ -141,31 +127,6 @@ func hasFileExtension(segment string) bool {
 //   - val: 观察到的路径段值
 func (n *RequestPathVariableNode) ObserveValue(val string) {
 	n.valueMetric.AddValue(val)
-}
-
-// ShouldUpdateInference 判断是否应该更新类型推断
-//
-// 返回:
-//   - bool: 如果应该更新类型推断则返回true，否则返回false
-func (n *RequestPathVariableNode) ShouldUpdateInference() bool {
-	// 这里可以实现更复杂的逻辑，如检查样本数量是否达到阈值
-	// 当前简单实现：每次都更新
-	return true
-}
-
-// UpdateTypeInference 根据已观察的值更新类型推断
-func (n *RequestPathVariableNode) UpdateTypeInference() {
-	// 使用推断函数确定值类型
-	if n.inferFunc != nil {
-		inferredType, err := n.inferFunc(n)
-		if err != nil {
-			// 推断失败时保持当前类型
-			return
-		}
-
-		// 更新推断的类型
-		n.valueType = inferredType
-	}
 }
 
 // GetValueType 获取推断出的值类型
