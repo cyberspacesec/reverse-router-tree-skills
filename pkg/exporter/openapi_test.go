@@ -449,3 +449,88 @@ func TestOpenAPIExport_StableOrdering(t *testing.T) {
 		t.Errorf("路径应按字母序输出，实际 %+v", keys)
 	}
 }
+
+// === 安全方案测试 ===
+
+func TestOpenAPIExport_SecurityFromAuthorization(t *testing.T) {
+	r := router.NewReverseRouter()
+	r.ReverseHttpRequest(request.NewHttpRequest("/api/orders",
+		request.Headers{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig"}, "GET", nil))
+	r.ReverseHttpRequest(request.NewHttpRequest("/api/admin",
+		request.Headers{"Authorization": "Basic dXNlcjpwYXNz"}, "GET", nil))
+
+	data, _ := NewOpenAPIExporter().Export(r.Tree)
+	doc := parseDoc(t, data)
+	paths := getPaths(t, doc)
+
+	// /api/orders 应声明 bearerAuth
+	opOrder := getOperation(t, getPathItem(t, paths, "/api/orders"), "get")
+	secOrder, _ := opOrder["security"].([]interface{})
+	if len(secOrder) != 1 {
+		t.Fatalf("/api/orders 应有1条 security 声明，实际 %d", len(secOrder))
+	}
+	if _, ok := secOrder[0].(map[string]interface{})["bearerAuth"]; !ok {
+		t.Errorf("/api/orders security 应引用 bearerAuth，实际 %v", secOrder[0])
+	}
+
+	// /api/admin 应声明 basicAuth
+	opAdmin := getOperation(t, getPathItem(t, paths, "/api/admin"), "get")
+	secAdmin, _ := opAdmin["security"].([]interface{})
+	if len(secAdmin) != 1 {
+		t.Fatalf("/api/admin 应有1条 security 声明，实际 %d", len(secAdmin))
+	}
+	if _, ok := secAdmin[0].(map[string]interface{})["basicAuth"]; !ok {
+		t.Errorf("/api/admin security 应引用 basicAuth，实际 %v", secAdmin[0])
+	}
+
+	// components.securitySchemes 应注册两个方案
+	comps, _ := doc["components"].(map[string]interface{})
+	schemes, _ := comps["securitySchemes"].(map[string]interface{})
+	bearer, _ := schemes["bearerAuth"].(map[string]interface{})
+	if bearer["type"] != "http" || bearer["scheme"] != "bearer" {
+		t.Errorf("bearerAuth 应为 http/bearer，实际 %v", bearer)
+	}
+	basic, _ := schemes["basicAuth"].(map[string]interface{})
+	if basic["type"] != "http" || basic["scheme"] != "basic" {
+		t.Errorf("basicAuth 应为 http/basic，实际 %v", basic)
+	}
+
+	// Authorization 不应再作为普通 header 参数重复输出
+	paramsOrder, _ := opOrder["parameters"].([]interface{})
+	for _, p := range paramsOrder {
+		pm := p.(map[string]interface{})
+		if pm["name"] == "Authorization" {
+			t.Error("Authorization 不应作为普通 header 参数输出（已由 security 表达）")
+		}
+	}
+}
+
+// TestOpenAPIExport_UnknownAuthFallsBackToHeader 无法识别的 Authorization
+// 方案值（如自定义 Token）应回退为普通 header 参数，不生成 security。
+func TestOpenAPIExport_UnknownAuthFallsBackToHeader(t *testing.T) {
+	r := router.NewReverseRouter()
+	// "Token" 不在 Bearer/Basic/Digest 之列 → 当普通 header
+	r.ReverseHttpRequest(request.NewHttpRequest("/api/x",
+		request.Headers{"Authorization": "Token abc123"}, "GET", nil))
+
+	data, _ := NewOpenAPIExporter().Export(r.Tree)
+	doc := parseDoc(t, data)
+	op := getOperation(t, getPathItem(t, getPaths(t, doc), "/api/x"), "get")
+
+	// 应有 Authorization 作为 header 参数
+	paramsX, _ := op["parameters"].([]interface{})
+	found := false
+	for _, p := range paramsX {
+		pm := p.(map[string]interface{})
+		if pm["name"] == "Authorization" && pm["in"] == "header" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("未识别方案应回退为 Authorization header 参数")
+	}
+	// 不应有 security 声明
+	if _, ok := op["security"]; ok {
+		t.Error("未识别方案不应生成 security 声明")
+	}
+}
