@@ -105,6 +105,24 @@ ChainTypeInferenceRule.InferPhysicalAndLogical(值列表)
 
 理由：`int64` 最大值是 19 位的 `9223372036854775807`，16 位以上有溢出风险；这些长数字本质是标识符，业务系统普遍用 string 存储。详见 [长数字串降级](/features/long-number)。
 
+## IP 地址（IPv4 + IPv6）
+
+IPv4 用正则粗筛（四组十进制）。IPv6 的 `::` 压缩、嵌入 IPv4（`::ffff:1.2.3.4`）等形式正则难以穷尽且易误判，改用 `net.ParseIP` 兜底判定——标准库权威解析覆盖所有合法 IPv6 形式：
+
+```mermaid
+flowchart LR
+    V["值含 . 或 :"] --> RE{"IPv4 正则匹配?"}
+    RE -- "是" --> IP["ipaddress"]
+    RE -- "否" --> PI{"net.ParseIP != nil?"}
+    PI -- "是" --> IP
+    PI -- "否" --> Other["其他类型"]
+
+    classDef hit fill:#dcfce7,stroke:#16a34a
+    class IP hit
+```
+
+网络空间测绘场景 IPv6 资产日益增多，识别为 `ipaddress` 逻辑类型后，OpenAPI 导出为 `type:string, format:ipv4`（IPv6 形式不强制 format，避免路径变量无 pattern 时误标）。
+
 ## 中国特有格式
 
 源码：正则表 [`initPatterns` (logical_type_inference_rule.go:70-124)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/inference/logical_type_inference_rule.go#L70-L124) · 电话归一化 [`stripPhoneSeparators` (logical_type_inference_rule.go:249-260)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/inference/logical_type_inference_rule.go#L249-L260)

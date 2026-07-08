@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"net"
 	"regexp"
 	"strings"
 
@@ -72,7 +73,8 @@ func (r *LogicalTypeInferenceRule) initPatterns() {
 		// UUID 格式
 		{value.LogicalTypeUUID, regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)},
 
-		// IP 地址
+		// IP 地址（IPv4 正则粗筛；IPv6 的 :: 压缩/嵌入 IPv4 等形式由 isIPAddress
+		// 用 net.ParseIP 兜底，正则难以穷尽且易误判）
 		{value.LogicalTypeIPAddress, regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)},
 
 		// 中国电话号码（手机号 + 座机号）
@@ -211,6 +213,12 @@ func (r *LogicalTypeInferenceRule) matchStructuredPatterns(metric *value.ValueMe
 				typeMatches[pattern.logicalType] += count
 				break // 一个值只匹配最优先的模式
 			}
+			// IP 地址用 net.ParseIP 兜底：IPv6 的 :: 压缩、嵌入 IPv4 等形式
+			// 正则难以穷尽且易误判，标准库权威解析更可靠。
+			if pattern.logicalType == value.LogicalTypeIPAddress && isIPAddress(normalized) {
+				typeMatches[pattern.logicalType] += count
+				break
+			}
 		}
 		return true
 	})
@@ -229,6 +237,7 @@ func (r *LogicalTypeInferenceRule) matchStructuredPatterns(metric *value.ValueMe
 }
 
 // normalizeForPattern 针对特定逻辑类型的值归一化
+// normalizeForPattern 针对特定逻辑类型的值归一化
 // 某些格式在现实中常以分隔符形式出现（如手机号 138-1234-5678），
 // 归一化后能统一识别，提升异常/不规范数据的兼容性。
 func (r *LogicalTypeInferenceRule) normalizeForPattern(val string, logicalType value.LogicalType) string {
@@ -242,6 +251,18 @@ func (r *LogicalTypeInferenceRule) normalizeForPattern(val string, logicalType v
 	default:
 		return val
 	}
+}
+
+// isIPAddress 用 net.ParseIP 判定字符串是否为合法 IPv4 或 IPv6 地址。
+// IPv6 的 :: 压缩、嵌入 IPv4（::ffff:1.2.3.4）等形式正则难以穷尽且易误判，
+// 标准库权威解析更可靠。net.ParseIP 对形如 "123" 的纯数字返回非 nil（视为
+// IPv4 等价），故仅在本函数被调用时（即值已含 . 或 : 的 IP 候选场景）兜底。
+func isIPAddress(val string) bool {
+	// 快速排除：IP 地址必含 . 或 :，避免对纯数字/普通字符串无谓调用
+	if !strings.ContainsAny(val, ".:") {
+		return false
+	}
+	return net.ParseIP(val) != nil
 }
 
 // stripPhoneSeparators 去除手机号中常见的分隔符

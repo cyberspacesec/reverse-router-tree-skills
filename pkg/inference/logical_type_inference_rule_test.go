@@ -119,6 +119,37 @@ func TestLogicalType_IPAddress(t *testing.T) {
 	}
 }
 
+// 测试 IPv6 地址逻辑类型推断
+func TestLogicalType_IPv6Address(t *testing.T) {
+	rule := NewLogicalTypeInferenceRule()
+
+	cases := []struct {
+		name string
+		ips  []string
+	}{
+		{"完整8组", []string{"2001:0db8:0000:0000:0000:0000:0000:0001", "2001:0db8:0000:0000:0000:0000:0000:0002", "2001:0db8:0000:0000:0000:0000:0000:0003"}},
+		{"压缩形式", []string{"2001:db8::1", "2001:db8::2", "2001:db8::3"}},
+		{"未指定", []string{"::1", "::2", "::"}},
+		{"嵌入IPv4", []string{"::ffff:192.168.1.1", "::ffff:192.168.1.2", "::ffff:10.0.0.1"}},
+		{"链路本地", []string{"fe80::1", "fe80::2", "fe80::3"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pathVarNode := node.NewRequestPathVariableNode("ip", "")
+			for _, ip := range c.ips {
+				pathVarNode.ObserveValue(ip)
+			}
+			inferred, err := rule.Infer(pathVarNode)
+			if err != nil {
+				t.Fatalf("推断失败: %v", err)
+			}
+			if inferred != value.Type(value.LogicalTypeIPAddress) {
+				t.Errorf("IPv6 %s 应推断为 'ipaddress'，实际: '%s'", c.name, inferred)
+			}
+		})
+	}
+}
+
 // 测试URL逻辑类型推断
 func TestLogicalType_URL(t *testing.T) {
 	rule := NewLogicalTypeInferenceRule()
