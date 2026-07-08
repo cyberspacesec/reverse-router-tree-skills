@@ -2,34 +2,37 @@ package router
 
 import (
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
-	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
+// RequestContentTypeRouter 根据HTTP请求的Content-Type进行路由
 type RequestContentTypeRouter struct {
 }
 
-var _ Router[[]*request.HttpRequestPath] = (*RequestContentTypeRouter)(nil)
+var _ Router[string] = (*RequestContentTypeRouter)(nil)
 
-func (x *RequestContentTypeRouter) FindNode(node node.Node[node.NodeContext], requestPaths []*request.HttpRequestPath) (node.Node[node.NodeContext], error) {
-	// 检查节点是否是 RequestPathNode 类型
-	requestPathNode, ok := node.(node.RequestPathNode)
+// FindNode 根据Content-Type查找匹配的节点
+// 参数:
+//   - n: 起始节点
+//   - contentType: 请求的Content-Type值，如 "application/json"
+func (x *RequestContentTypeRouter) FindNode(n node.Node[node.NodeContext], contentType string) (node.Node[node.NodeContext], error) {
+	// 检查节点是否是 RequestContentTypeNode 类型（指针类型断言）
+	ctNode, ok := n.(*node.RequestContentTypeNode)
 	if !ok {
 		return nil, nil
 	}
 
-	// 如果没有路径，则表示是一个根路径，则看下给定的节点是否也是根节点
-	if len(requestPaths) == 0 {
-		return requestPathNode.GetKey() == "", nil
-	}
-
-	for _, exceptRequestPath := range requestPaths {
-		childNode := requestPathNode.FindChildByKey(exceptRequestPath.Path)
-		if childNode == nil {
-			return nil, nil
+	// 如果没有Content-Type，则看节点是否也是空的
+	if contentType == "" {
+		if ctNode.GetKey() == "" {
+			return ctNode, nil
 		}
-		requestPathNode = childNode
+		return nil, nil
 	}
 
-	// TODO: 实现路径匹配逻辑
-	return requestPathNode, nil
+	// 匹配Content-Type
+	if ctNode.IsMatch(contentType) {
+		return ctNode, nil
+	}
+
+	return nil, nil
 }

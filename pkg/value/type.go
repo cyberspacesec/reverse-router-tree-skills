@@ -50,4 +50,11 @@ const (
 	LogicalTypeEnum      LogicalType = "enum"      // 枚举值
 	LogicalTypeBinary    LogicalType = "binary"    // 二进制数据
 	LogicalTypeReference LogicalType = "reference" // 引用类型
+
+	// 中国特有逻辑类型
+	LogicalTypePhoneNumber LogicalType = "phone"       // 手机号码，如 13812345678
+	LogicalTypeIDCard      LogicalType = "idcard"      // 身份证号码，18位或15位
+	LogicalTypeBankCard    LogicalType = "bankcard"    // 银行卡号，16-19位
+	LogicalTypePlateNumber LogicalType = "plate"       // 车牌号，如 京A12345
+	LogicalTypePostalCode  LogicalType = "postalcode"  // 邮政编码，6位数字
 )

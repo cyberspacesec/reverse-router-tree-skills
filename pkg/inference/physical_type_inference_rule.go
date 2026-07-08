@@ -310,11 +310,7 @@ func (r *PhysicalTypeInferenceRule) isScientificNotation(val string) bool {
 
 	// e 后面部分：[+-]?数字（必须是整数）
 	exponent := val[eIndex+1:]
-	if !r.isNumericPart(exponent, false) {
-		return false
-	}
-
-	return true
+	return r.isNumericPart(exponent, false)
 }
 
 // isNumericPart 检查数值的某一部分是否合法

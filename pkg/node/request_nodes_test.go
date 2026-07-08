@@ -102,9 +102,9 @@ func TestRequestPathVariableNode(t *testing.T) {
 		t.Error("无模式变量节点应该匹配任何非空路径段")
 	}
 
-	// 测试字符串表示（无模式）
+	// 测试字符串表示（无模式，显示默认推断类型string）
 	strRep = anyNode.String()
-	expected = "{any}"
+	expected = "{any:string}"
 	if strRep != expected {
 		t.Errorf("字符串表示错误，期望 '%s'，得到 '%s'", expected, strRep)
 	}
@@ -164,10 +164,27 @@ func TestRequestParamNode(t *testing.T) {
 
 	// 测试可选参数
 	optionalNode := NewRequestParamNode("limit", "10", false)
-	if !optionalNode.IsMatch("sort=name") {
-		t.Error("可选参数节点应该匹配不包含该参数的查询字符串")
+
+	// 可选参数只在参数名出现时才匹配，不应匹配不包含该参数的查询字符串
+	if optionalNode.IsMatch("sort=name") {
+		t.Error("可选参数节点不应该匹配不包含该参数名的查询字符串")
 	}
 
+	// 可选参数在参数名出现时应该匹配
+	if !optionalNode.IsMatch("limit") {
+		t.Error("可选参数节点应该匹配参数名 'limit'")
+	}
+
+	if !optionalNode.IsMatch("limit=20") {
+		t.Error("可选参数节点应该匹配 'limit=20'")
+	}
+
+	if !optionalNode.IsMatch("sort=name&limit=20") {
+		t.Error("可选参数节点应该匹配包含 'limit=20' 的查询字符串")
+	}
+
+	// 注意：ExtractValue 即使参数不存在也能处理（使用默认值）
+	// 这和 IsMatch 是不同的语义
 	if !optionalNode.ExtractValue("sort=name") {
 		t.Error("可选参数应该在参数缺失时使用默认值")
 	}
@@ -175,6 +192,11 @@ func TestRequestParamNode(t *testing.T) {
 	value, _ = optionalNode.GetContext().GetKey("limit")
 	if value != "10" {
 		t.Errorf("可选参数默认值错误，期望 '10'，得到 %v", value)
+	}
+
+	// 测试参数值不误匹配（page_size 不应匹配 page 参数）
+	if requiredNode.IsMatch("page_size=100") {
+		t.Error("参数 'page' 不应该匹配 'page_size=100'")
 	}
 }
 
@@ -289,5 +311,294 @@ func TestNodeCombination(t *testing.T) {
 		t.Error("应该匹配application/json内容类型")
 	} else {
 		t.Log("成功匹配完整路由路径")
+	}
+}
+
+// 测试 RequestHeaderNode
+func TestRequestHeaderNode(t *testing.T) {
+	// 创建 Accept header 分组节点
+	headerNode := NewRequestHeaderNode("Accept")
+
+	if headerNode.GetHeaderName() != "Accept" {
+		t.Errorf("Header名称应该是 'Accept'，实际: '%s'", headerNode.GetHeaderName())
+	}
+	if headerNode.GetType() != "request_header" {
+		t.Errorf("节点类型应该是 'request_header'，实际: '%s'", headerNode.GetType())
+	}
+	if headerNode.GetKey() != "Accept" {
+		t.Errorf("节点Key应该是 'Accept'，实际: '%s'", headerNode.GetKey())
+	}
+
+	// 测试 FindOrCreateValueNode
+	jsonValNode := headerNode.FindOrCreateValueNode("application/json")
+	if jsonValNode == nil {
+		t.Fatal("应该创建 application/json 值节点")
+	}
+	if jsonValNode.GetHeaderName() != "Accept" {
+		t.Errorf("值节点的 headerName 应该是 'Accept'，实际: '%s'", jsonValNode.GetHeaderName())
+	}
+	if jsonValNode.GetHeaderValue() != "application/json" {
+		t.Errorf("值节点的 headerValue 应该是 'application/json'，实际: '%s'", jsonValNode.GetHeaderValue())
+	}
+	if jsonValNode.GetType() != "request_header_value" {
+		t.Errorf("值节点类型应该是 'request_header_value'，实际: '%s'", jsonValNode.GetType())
+	}
+
+	// 再次查找相同的值节点，应该返回已有节点
+	jsonValNode2 := headerNode.FindOrCreateValueNode("application/json")
+	if jsonValNode2 == nil {
+		t.Fatal("应该找到已有的 application/json 值节点")
+	}
+
+	// 创建第二个值节点
+	htmlValNode := headerNode.FindOrCreateValueNode("text/html")
+	if htmlValNode == nil {
+		t.Fatal("应该创建 text/html 值节点")
+	}
+
+	// 验证子节点数量
+	if headerNode.GetChildCount() != 2 {
+		t.Errorf("应该有2个子节点，实际: %d", headerNode.GetChildCount())
+	}
+}
+
+// 测试 RequestHeaderValueNode
+func TestRequestHeaderValueNode(t *testing.T) {
+	valNode := NewRequestHeaderValueNode("Authorization", "Bearer")
+
+	if valNode.GetHeaderName() != "Authorization" {
+		t.Errorf("Header名称应该是 'Authorization'，实际: '%s'", valNode.GetHeaderName())
+	}
+	if valNode.GetHeaderValue() != "Bearer" {
+		t.Errorf("HeaderValue 应该是 'Bearer'，实际: '%s'", valNode.GetHeaderValue())
+	}
+
+	// 测试 IsMatch
+	if !valNode.IsMatch("Bearer") {
+		t.Error("应该匹配 'Bearer'")
+	}
+	if valNode.IsMatch("Basic") {
+		t.Error("不应该匹配 'Basic'")
+	}
+
+	// 测试 ObserveValue
+	valNode.ObserveValue("Bearer")
+	metric := valNode.GetValueMetric()
+	if metric.GetUniqueValueCount() != 1 {
+		t.Errorf("唯一值数量应该是1，实际: %d", metric.GetUniqueValueCount())
+	}
+}
+
+// 测试 RequestCookieNode
+func TestRequestCookieNode(t *testing.T) {
+	// 创建 lang cookie 分组节点
+	cookieNode := NewRequestCookieNode("lang")
+
+	if cookieNode.GetCookieName() != "lang" {
+		t.Errorf("Cookie名称应该是 'lang'，实际: '%s'", cookieNode.GetCookieName())
+	}
+	if cookieNode.GetType() != "request_cookie" {
+		t.Errorf("节点类型应该是 'request_cookie'，实际: '%s'", cookieNode.GetType())
+	}
+	if cookieNode.GetKey() != "lang" {
+		t.Errorf("节点Key应该是 'lang'，实际: '%s'", cookieNode.GetKey())
+	}
+
+	// 测试 FindOrCreateValueNode
+	zhValNode := cookieNode.FindOrCreateValueNode("zh-CN")
+	if zhValNode == nil {
+		t.Fatal("应该创建 zh-CN 值节点")
+	}
+	if zhValNode.GetCookieName() != "lang" {
+		t.Errorf("值节点的 cookieName 应该是 'lang'，实际: '%s'", zhValNode.GetCookieName())
+	}
+	if zhValNode.GetCookieValue() != "zh-CN" {
+		t.Errorf("值节点的 cookieValue 应该是 'zh-CN'，实际: '%s'", zhValNode.GetCookieValue())
+	}
+	if zhValNode.GetType() != "request_cookie_value" {
+		t.Errorf("值节点类型应该是 'request_cookie_value'，实际: '%s'", zhValNode.GetType())
+	}
+
+	// 创建第二个值节点
+	enValNode := cookieNode.FindOrCreateValueNode("en-US")
+	if enValNode == nil {
+		t.Fatal("应该创建 en-US 值节点")
+	}
+
+	// 验证子节点数量
+	if cookieNode.GetChildCount() != 2 {
+		t.Errorf("应该有2个子节点，实际: %d", cookieNode.GetChildCount())
+	}
+}
+
+// 测试 RequestCookieValueNode
+func TestRequestCookieValueNode(t *testing.T) {
+	valNode := NewRequestCookieValueNode("theme", "dark")
+
+	if valNode.GetCookieName() != "theme" {
+		t.Errorf("Cookie名称应该是 'theme'，实际: '%s'", valNode.GetCookieName())
+	}
+	if valNode.GetCookieValue() != "dark" {
+		t.Errorf("CookieValue 应该是 'dark'，实际: '%s'", valNode.GetCookieValue())
+	}
+
+	// 测试 IsMatch
+	if !valNode.IsMatch("dark") {
+		t.Error("应该匹配 'dark'")
+	}
+	if valNode.IsMatch("light") {
+		t.Error("不应该匹配 'light'")
+	}
+}
+
+// 测试 RequestParamNode 大小写不敏感
+func TestRequestParamNode_CaseInsensitive(t *testing.T) {
+	// 参数名统一小写
+	paramNode := NewRequestParamNode("Page", "1", false)
+
+	// 内部 key 应该是小写
+	if paramNode.GetParamName() != "page" {
+		t.Errorf("参数名应该是 'page'（小写），实际: '%s'", paramNode.GetParamName())
+	}
+
+	// IsMatch 应该大小写不敏感
+	if !paramNode.IsMatch("Page") {
+		t.Error("应该匹配 'Page'（大小写不敏感）")
+	}
+	if !paramNode.IsMatch("PAGE") {
+		t.Error("应该匹配 'PAGE'（大小写不敏感）")
+	}
+	if !paramNode.IsMatch("page") {
+		t.Error("应该匹配 'page'")
+	}
+}
+
+// 测试 RequestParamNode 多值参数
+func TestRequestParamNode_MultiValue(t *testing.T) {
+	paramNode := NewRequestParamNode("tag", "go", false)
+
+	// 提取多值参数
+	if !paramNode.ExtractValue("tag=go&tag=web&tag=api") {
+		t.Error("应该能够提取多值参数")
+	}
+
+	// 上下文中的值应该是逗号分隔
+	value, exists := paramNode.GetContext().GetKey("tag")
+	if !exists {
+		t.Error("上下文中应该存在 'tag' 键")
+	}
+	if value != "go,web,api" {
+		t.Errorf("多值参数应该是逗号分隔，实际: '%s'", value)
+	}
+
+	// 应该标记为多值参数
+	if !paramNode.IsMultiValue() {
+		t.Error("应该是多值参数")
+	}
+}
+
+// 测试 RequestParamNode 默认值自动观察
+func TestRequestParamNode_DefaultValueObserved(t *testing.T) {
+	paramNode := NewRequestParamNode("page", "1", false)
+
+	// 默认值应该被自动观察
+	metric := paramNode.GetValueMetric()
+	if metric.GetUniqueValueCount() != 1 {
+		t.Errorf("默认值应该被观察，唯一值数量应该是1，实际: %d", metric.GetUniqueValueCount())
+	}
+	if metric.GetValueCount("1") != 1 {
+		t.Errorf("默认值 '1' 的计数应该是1，实际: %d", metric.GetValueCount("1"))
+	}
+}
+
+// 测试 RequestParamNode 必需性推断
+func TestRequestParamNode_InferRequired(t *testing.T) {
+	// 场景1：出现率高 → 必需
+	pn1 := NewRequestParamNode("page", "", false)
+	for i := 0; i < 10; i++ {
+		pn1.IncrementPresenceCount()
+	}
+	// 10/10 = 1.0 >= 0.9 → 必需
+	if !pn1.InferRequired(10, 0.9) {
+		t.Error("出现率 10/10 应判定为必需")
+	}
+	if !pn1.IsRequired() {
+		t.Error("InferRequired 后 IsRequired 应为 true")
+	}
+
+	// 场景2：出现率中等 → 可选
+	pn2 := NewRequestParamNode("size", "", false)
+	for i := 0; i < 6; i++ {
+		pn2.IncrementPresenceCount()
+	}
+	// 6/10 = 0.6 < 0.9 → 可选
+	if pn2.InferRequired(10, 0.9) {
+		t.Error("出现率 6/10 应判定为可选")
+	}
+	if pn2.IsRequired() {
+		t.Error("InferRequired 后 IsRequired 应为 false")
+	}
+
+	// 场景3：样本不足 → 保持默认
+	pn3 := NewRequestParamNode("foo", "", false)
+	pn3.IncrementPresenceCount()
+	// 单次请求，样本不足，保持默认 false
+	if pn3.InferRequired(1, 0.9) {
+		t.Error("样本不足（1次请求）不应判定为必需，应保持默认")
+	}
+
+	// 场景4：阈值边界
+	pn4 := NewRequestParamNode("bar", "", false)
+	for i := 0; i < 9; i++ {
+		pn4.IncrementPresenceCount()
+	}
+	// 9/10 = 0.9 == 阈值0.9 → 必需（>=）
+	if !pn4.InferRequired(10, 0.9) {
+		t.Error("出现率 9/10 = 0.9 达到阈值应判定为必需")
+	}
+}
+
+// 测试 RequestParamNode 出现计数
+func TestRequestParamNode_PresenceCount(t *testing.T) {
+	pn := NewRequestParamNode("tag", "", false)
+
+	if pn.GetPresenceCount() != 0 {
+		t.Errorf("初始出现次数应为0，实际: %d", pn.GetPresenceCount())
+	}
+
+	pn.IncrementPresenceCount()
+	pn.IncrementPresenceCount()
+	pn.IncrementPresenceCount()
+
+	if pn.GetPresenceCount() != 3 {
+		t.Errorf("3次累加后出现次数应为3，实际: %d", pn.GetPresenceCount())
+	}
+}
+
+// 测试 RequestPathVariableNode 文件扩展名排除
+func TestRequestPathVariableNode_FileExtensionExclusion(t *testing.T) {
+	// 无模式的变量节点应该排除有文件扩展名的路径段
+	varNode := NewRequestPathVariableNode("resource", "")
+
+	// 没有文件扩展名应该匹配
+	if !varNode.IsMatch("123") {
+		t.Error("无扩展名路径 '123' 应该匹配")
+	}
+
+	// 有文件扩展名不应该匹配
+	if varNode.IsMatch("data.json") {
+		t.Error("有扩展名路径 'data.json' 不应该匹配")
+	}
+	if varNode.IsMatch("style.css") {
+		t.Error("有扩展名路径 'style.css' 不应该匹配")
+	}
+	if varNode.IsMatch("page.html") {
+		t.Error("有扩展名路径 'page.html' 不应该匹配")
+	}
+
+	// 有正则模式的变量节点应该按模式匹配（不检查扩展名）
+	intVarNode := NewRequestPathVariableNode("id", "[0-9]+")
+	if !intVarNode.IsMatch("123") {
+		t.Error("数字模式应该匹配 '123'")
 	}
 }

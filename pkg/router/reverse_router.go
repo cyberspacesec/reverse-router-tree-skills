@@ -538,53 +538,6 @@ func (d *PatternDetector) DetectPattern(values []string) (string, float64) {
 	return bestPattern, bestRatio
 }
 
-// shouldMergeAsVariable 判断一组兄弟节点是否应该合并为路径变量
-func (x *ReverseRouter) shouldMergeAsVariable(children []node.Node[node.NodeContext]) bool {
-	if len(children) == 0 {
-		return false
-	}
-
-	values := make([]string, len(children))
-	for i, child := range children {
-		values[i] = child.GetKey()
-	}
-
-	detector := NewPatternDetector()
-	patternName, similarity := detector.DetectPattern(values)
-
-	// 对于长度相似但内容杂乱的字符串，默认不合并
-	// 它们可能确实是固定路径名（如 admin、manager、guest）
-	// 注意：similar_length_strings 的 similarity 可能很高（如1.0），
-	// 必须在 similarity 阈值检查之前排除，否则会被短路
-	if patternName == "similar_length_strings" {
-		// 突破规则：当兄弟节点数量足够多时，长度相似的字符串更可能是变量值集合
-		// （城市名、人名、商品名等），而非固定路由名（固定路由名很少超过阈值数量）
-		if x.mergeConfig.SimilarLengthBreakThreshold > 0 &&
-			len(children) >= x.mergeConfig.SimilarLengthBreakThreshold {
-			return true
-		}
-		return false
-	}
-
-	// 如果模式匹配度超过阈值，允许合并
-	if similarity >= x.mergeConfig.PatternSimilarityThreshold {
-		return true
-	}
-
-	// 对于一些明确的模式（integer、uuid、手机号、身份证号等），即使略低于阈值也允许合并
-	// 这些模式几乎不可能是固定路径
-	if patternName == "integer" || patternName == "uuid" || patternName == "float" ||
-		patternName == "version" || patternName == "alphanumeric" ||
-		patternName == "phone" || patternName == "idcard" || patternName == "bankcard" ||
-		patternName == "plate" {
-		return similarity >= 0.4 // 降低阈值，因为数字/UUID/手机号等几乎肯定是变量
-	}
-
-	// 没有明确的模式匹配，不合并
-	// 以前这里会回退到 "节点数量足够多就合并"，但这太激进了
-	return false
-}
-
 // mergeSiblings 将兄弟节点合并为一个路径变量节点
 func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], children []node.Node[node.NodeContext]) {
 	if len(children) == 0 {

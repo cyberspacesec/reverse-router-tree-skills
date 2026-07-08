@@ -113,3 +113,57 @@ func TestUrlParserParse(t *testing.T) {
 		})
 	}
 }
+
+// 测试路径参数检测
+func TestHttpRequestPath_ParamDetection(t *testing.T) {
+	// key=value 格式应该被识别为路径参数
+	p1 := NewHttpRequestPath("action=delete")
+	if !p1.IsPathParam() {
+		t.Error("'action=delete' 应该被识别为路径参数")
+	}
+	if p1.GetPathParamKey() != "action" {
+		t.Errorf("参数键应该是 'action'，实际: '%s'", p1.GetPathParamKey())
+	}
+	if p1.GetPathParamValue() != "delete" {
+		t.Errorf("参数值应该是 'delete'，实际: '%s'", p1.GetPathParamValue())
+	}
+
+	// 普通路径不应该被识别为路径参数
+	p2 := NewHttpRequestPath("users")
+	if p2.IsPathParam() {
+		t.Error("'users' 不应该被识别为路径参数")
+	}
+
+	// 数字路径不应该被识别为路径参数
+	p3 := NewHttpRequestPath("123")
+	if p3.IsPathParam() {
+		t.Error("'123' 不应该被识别为路径参数")
+	}
+
+	// 以数字开头的 key 不应该被识别（不合法的参数名）
+	p4 := NewHttpRequestPath("1abc=value")
+	if p4.IsPathParam() {
+		t.Error("'1abc=value' 不应该被识别为路径参数（数字开头的key）")
+	}
+
+	// 空值
+	p5 := NewHttpRequestPath("flag=")
+	if !p5.IsPathParam() {
+		t.Error("'flag=' 应该被识别为路径参数")
+	}
+	if p5.GetPathParamKey() != "flag" {
+		t.Errorf("参数键应该是 'flag'，实际: '%s'", p5.GetPathParamKey())
+	}
+
+	// 下划线开头的 key
+	p6 := NewHttpRequestPath("_type=json")
+	if !p6.IsPathParam() {
+		t.Error("'_type=json' 应该被识别为路径参数")
+	}
+
+	// 包含等号但不是合法参数名
+	p7 := NewHttpRequestPath("user@example.com")
+	if p7.IsPathParam() {
+		t.Error("'user@example.com' 不应该被识别为路径参数")
+	}
+}

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="900" height="520" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6fbf8"/>
+      <stop offset="1" stop-color="#eef6f1"/>
+    </linearGradient>
+    <style>
+      .panel { fill: #ffffff; stroke-width: 1.5; }
+      .bad { stroke: #e57373; }
+      .good { stroke: #3aa676; }
+      .ttl { font-size: 14px; font-weight: 700; }
+      .tree { font-family: monospace; font-size: 12px; }
+      .note { font-size: 11px; fill: #5a6b7b; }
+      .x { fill: #e57373; font-weight: 700; }
+      .check { fill: #3aa676; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="900" height="520" fill="url(#bg3)" rx="12"/>
+
+  <text x="450" y="34" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2d3d">选择性合并：为什么不能全合并</text>
+  <text x="450" y="54" text-anchor="middle" font-size="12" fill="#5a6b7b">5 个兄弟：list / create / 101 / 102 / 103 —— 只有 101/102/103 是变量</text>
+
+  <!-- 左：暴力全合并（错误） -->
+  <rect class="panel bad" x="30" y="78" width="400" height="300" rx="10"/>
+  <text x="230" y="102" text-anchor="middle" class="ttl" fill="#e57373">✗ 暴力全合并（错误）</text>
+  <text x="230" y="120" text-anchor="middle" class="note">看到 5 个兄弟就全塞进变量</text>
+  <g class="tree" fill="#37474f">
+    <text x="50" y="150">users</text>
+    <text x="50" y="170"> └─ {users_id} [Var]</text>
+  </g>
+  <g font-size="11" fill="#e57373">
+    <text x="50" y="210">后果：</text>
+    <text x="50" y="230">▸ list/create 被当成变量值</text>
+    <text x="50" y="248">▸ 真实接口消失</text>
+    <text x="50" y="266">▸ /api/users/list 无法命中</text>
+    <text x="50" y="284">▸ 攻击面严重失真</text>
+  </g>
+  <text x="50" y="330" font-size="10" fill="#9a7b1f">list/create 不匹配 integer 模式，</text>
+  <text x="50" y="344" font-size="10" fill="#9a7b1f">不该和数字一起合并</text>
+
+  <!-- 右：选择性合并（正确） -->
+  <rect class="panel good" x="470" y="78" width="400" height="300" rx="10"/>
+  <text x="670" y="102" text-anchor="middle" class="ttl" fill="#3aa676">✓ 选择性合并（当前方案）</text>
+  <text x="670" y="120" text-anchor="middle" class="note">只合并匹配模式的子集，固定路径保留</text>
+  <g class="tree" fill="#37474f">
+    <text x="490" y="150">users</text>
+    <text x="490" y="170"> ├─ list    [Path]      </text>
+    <text x="490" y="190"> ├─ create  [Path]      </text>
+    <text x="490" y="210"> └─ {users_id} [Var, integer]</text>
+  </g>
+  <g font-size="11" fill="#3aa676">
+    <text x="490" y="248">效果：</text>
+    <text x="490" y="268">▸ list/create 保留为固定路径</text>
+    <text x="490" y="286">▸ 101/102/103 合并成变量</text>
+    <text x="490" y="304">▸ 两个真实接口都在</text>
+    <text x="490" y="322">▸ 攻击面准确</text>
+  </g>
+  <text x="490" y="356" font-size="10" fill="#9a7b1f">integer 匹配率 3/5=0.6 ≥ 0.4</text>
+  <text x="490" y="370" font-size="10" fill="#9a7b1f">（明确模式降阈到 0.4）→ 合并匹配子集</text>
+
+  <!-- 底部 -->
+  <rect x="30" y="398" width="840" height="98" rx="8" fill="#ffffff" stroke="#cfd8dc"/>
+  <text x="46" y="422" font-size="13" font-weight="700" fill="#1f2d3d">关键洞察</text>
+  <g font-size="12" fill="#37474f">
+    <text x="46" y="446">▸ 固定路径名（list/create）很少有 3+ 个同层兄弟；变量值（ID/UUID）往往大量同层出现</text>
+    <text x="46" y="468">▸ 「数量 + 模式」是区分变量与固定路径的信号 —— 单看数量会误合并，单看模式会漏合并</text>
+    <text x="46" y="488" fill="#5a6b7b">▸ similar_length_strings 模式（admin/manager/guest）默认不合并，≥6 个才突破</text>
+  </g>
+</svg>

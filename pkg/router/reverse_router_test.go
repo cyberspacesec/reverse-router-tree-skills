@@ -542,13 +542,13 @@ func TestPatternDetector(t *testing.T) {
 	}
 
 	// 日期
-	pattern, ratio = detector.DetectPattern([]string{"2024-01-15", "2024-02-20", "2024-03-25"})
+	pattern, _ = detector.DetectPattern([]string{"2024-01-15", "2024-02-20", "2024-03-25"})
 	if pattern != "date" {
 		t.Errorf("日期应该检测为 'date'，得到 '%s'", pattern)
 	}
 
 	// 混合字符串
-	pattern, ratio = detector.DetectPattern([]string{"admin", "manager", "guest"})
+	pattern, _ = detector.DetectPattern([]string{"admin", "manager", "guest"})
 	if pattern == "integer" {
 		t.Error("单词不应该检测为 integer")
 	}

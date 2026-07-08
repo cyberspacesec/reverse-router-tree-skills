@@ -14,7 +14,7 @@ func TestNewBaseNodeContext(t *testing.T) {
 	context := NewBaseNodeContext()
 
 	if context == nil {
-		t.Error("NewBaseNodeContext() 应该返回一个非nil对象")
+		t.Fatal("NewBaseNodeContext() 应该返回一个非nil对象")
 	}
 
 	if context.storageMap == nil {
@@ -435,7 +435,7 @@ func TestBaseNodeContext_EdgeCaseKeys(t *testing.T) {
 		"key.with.dots",
 		"中文键名",
 		"!@#$%^&*()",
-		"very long key name " + string(make([]byte, 1000, 1000)),
+		"very long key name " + string(make([]byte, 1000)),
 	}
 
 	for _, key := range specialKeys {

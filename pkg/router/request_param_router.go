@@ -5,7 +5,7 @@ import (
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
-// 根据HTTP请求参数进行路由
+// RequestParamRouter 根据HTTP请求参数进行路由
 type RequestParamRouter struct {
 }
 
@@ -13,20 +13,23 @@ type RequestParamRouter struct {
 var _ Router[[]*request.HttpRequestParam] = (*RequestParamRouter)(nil)
 
 // FindNode 根据请求参数查找匹配的节点
-func (x *RequestParamRouter) FindNode(node node.Node[node.NodeContext], requestParams []*request.HttpRequestParam) (node.Node[node.NodeContext], error) {
-	// 检查节点是否是 RequestParamNode 类型
-	requestParamNode, ok := node.(node.RequestParamNode)
+func (x *RequestParamRouter) FindNode(n node.Node[node.NodeContext], requestParams []*request.HttpRequestParam) (node.Node[node.NodeContext], error) {
+	// 检查节点是否是 RequestParamNode 类型（指针类型断言）
+	requestParamNode, ok := n.(*node.RequestParamNode)
 	if !ok {
 		return nil, nil
 	}
 
 	// 如果没有参数，则看是否能匹配没有参数的节点
 	if len(requestParams) == 0 {
-		return requestParamNode.GetChildCount() == 0, nil
+		if requestParamNode.GetChildCount() == 0 {
+			return requestParamNode, nil
+		}
+		return nil, nil
 	}
 
 	// 遍历所有请求参数，尝试找到匹配的子节点
-	currentNode := requestParamNode
+	currentNode := node.Node[node.NodeContext](requestParamNode)
 	for _, requestParam := range requestParams {
 		// 首先尝试精确匹配参数名和值
 		paramKey := requestParam.Name + "=" + requestParam.Value
@@ -43,12 +46,7 @@ func (x *RequestParamRouter) FindNode(node node.Node[node.NodeContext], requestP
 			return nil, nil
 		}
 
-		// 继续匹配下一个参数
-		paramNode, ok := childNode.(node.RequestParamNode)
-		if !ok {
-			return nil, nil
-		}
-		currentNode = paramNode
+		currentNode = childNode
 	}
 
 	return currentNode, nil

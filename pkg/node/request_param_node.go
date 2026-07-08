@@ -107,11 +107,7 @@ func (n *RequestParamNode) containsParam(queryString, paramName string) bool {
 
 	// 检查是否在 & 之后
 	target = "&" + target
-	if strings.Contains(lowerQuery, target) {
-		return true
-	}
-
-	return false
+	return strings.Contains(lowerQuery, target)
 }
 
 // GetParamName 获取参数名称
@@ -286,29 +282,6 @@ func (n *RequestParamNode) ExtractValue(queryString string) bool {
 		context.SetKey(paramName, "")
 	}
 	return true
-}
-
-// extractParam 从查询字符串中提取特定参数的值（单值版本）
-// 参数:
-//   - queryString: 查询字符串，格式为 "param1=value1&param2=value2"
-//   - paramName: 要提取的参数名
-//
-// 返回:
-//   - string: 提取到的参数值，如果未找到则返回空字符串
-func (n *RequestParamNode) extractParam(queryString string, paramName string) string {
-	// 分割查询字符串为参数对
-	params := strings.Split(queryString, "&")
-	for _, param := range params {
-		keyValue := strings.SplitN(param, "=", 2)
-		if len(keyValue) >= 1 && strings.EqualFold(keyValue[0], paramName) {
-			if len(keyValue) == 2 {
-				return keyValue[1]
-			}
-			// 参数存在但没有值（如 ?flag）
-			return ""
-		}
-	}
-	return ""
 }
 
 // extractParamValues 从查询字符串中提取特定参数的所有值（多值版本）

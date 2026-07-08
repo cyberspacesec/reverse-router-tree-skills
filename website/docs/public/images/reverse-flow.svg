@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" width="900" height="640" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6fbf8"/>
+      <stop offset="1" stop-color="#eef6f1"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#3aa676"/>
+    </marker>
+    <style>
+      .step { fill: #ffffff; stroke: #3aa676; stroke-width: 1.5; }
+      .step-num { fill: #3aa676; font-size: 13px; font-weight: 700; }
+      .step-title { fill: #1f2d3d; font-size: 13px; font-weight: 600; }
+      .step-desc { fill: #5a6b7b; font-size: 11px; }
+      .lane-label { fill: #2f8a62; font-size: 12px; font-weight: 700; }
+      .flow { stroke: #3aa676; stroke-width: 2; fill: none; }
+      .tree-box { fill: #fff8e6; stroke: #d9a441; stroke-width: 1.5; }
+      .tree-text { fill: #6b4f12; font-size: 12px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="900" height="640" fill="url(#bg)" rx="12"/>
+
+  <!-- 标题 -->
+  <text x="450" y="34" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2d3d">ReverseHttpRequest — 9 步逆向流程</text>
+  <text x="450" y="54" text-anchor="middle" font-size="12" fill="#5a6b7b">把一个 HTTP 请求逆向工程进路由树</text>
+
+  <!-- 输入 -->
+  <rect x="30" y="78" width="160" height="44" rx="8" fill="#1f7ad6"/>
+  <text x="110" y="100" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">HTTP 请求</text>
+  <text x="110" y="116" text-anchor="middle" fill="#dbeaff" font-size="10">URL · Headers · Body</text>
+
+  <!-- 9 个步骤，3x3 网格 -->
+  <!-- Row 1 -->
+  <g transform="translate(230,72)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">① URL 解析</text>
+    <text class="step-desc" x="12" y="38">解码 / 参数小写 / 多值展开</text>
+    <text class="step-desc" x="12" y="50">过滤 ./.. / 去尾部斜杠</text>
+  </g>
+  <g transform="translate(450,72)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">② 路径匹配/创建</text>
+    <text class="step-desc" x="12" y="38">逐段找/建路径节点</text>
+    <text class="step-desc" x="12" y="50">变量节点 IsMatch 匹配</text>
+  </g>
+  <g transform="translate(670,72)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">③ 路径参数识别</text>
+    <text class="step-desc" x="12" y="38">key=value 格式路径段</text>
+    <text class="step-desc" x="12" y="50">提取为参数（非路径段）</text>
+  </g>
+
+  <!-- Row 2 -->
+  <g transform="translate(230,158)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8" stroke-width="2.5"/>
+    <text class="step-num" x="12" y="20">④ 路径变量合并 ★</text>
+    <text class="step-desc" x="12" y="38">选择性合并相似兄弟</text>
+    <text class="step-desc" x="12" y="50">固定路径保留 / 软回退</text>
+  </g>
+  <g transform="translate(450,158)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">⑤ 方法节点</text>
+    <text class="step-desc" x="12" y="38">GET / POST / PUT ...</text>
+    <text class="step-desc" x="12" y="50">同路径多方法分叉</text>
+  </g>
+  <g transform="translate(670,158)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">⑥ 参数节点</text>
+    <text class="step-desc" x="12" y="38">查询 + body 合并</text>
+    <text class="step-desc" x="12" y="50">大小写不敏感 / 类型推断</text>
+  </g>
+
+  <!-- Row 3 -->
+  <g transform="translate(230,238)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">⑦ Content-Type 节点</text>
+    <text class="step-desc" x="12" y="38">POST/PUT/PATCH</text>
+    <text class="step-desc" x="12" y="50">JSON / 表单分流</text>
+  </g>
+  <g transform="translate(450,238)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">⑧ Header 路由</text>
+    <text class="step-desc" x="12" y="38">两层：名称 → 值</text>
+    <text class="step-desc" x="12" y="50">Accept / Auth 等</text>
+  </g>
+  <g transform="translate(670,238)">
+    <rect class="step" x="0" y="0" width="200" height="56" rx="8"/>
+    <text class="step-num" x="12" y="20">⑨ Cookie 路由</text>
+    <text class="step-desc" x="12" y="38">两层：名称 → 值</text>
+    <text class="step-desc" x="12" y="50">lang / theme 等</text>
+  </g>
+
+  <!-- 输入到步骤的箭头 -->
+  <path class="flow" d="M190,100 L224,100" marker-end="url(#arrow)"/>
+
+  <!-- 行间箭头 (蛇形: ③→④ 向下, ⑥→⑦ 向下) -->
+  <path class="flow" d="M770,128 L770,143 L330,143 L330,156" marker-end="url(#arrow)"/>
+  <path class="flow" d="M770,214 L770,229 L330,229 L330,238" marker-end="url(#arrow)"/>
+
+  <!-- ⑨ 到树的箭头 -->
+  <path class="flow" d="M770,294 L770,360" marker-end="url(#arrow)"/>
+
+  <!-- 路由树输出 -->
+  <rect class="tree-box" x="560" y="360" width="300" height="240" rx="10"/>
+  <text class="tree-text" x="710" y="384" text-anchor="middle" font-size="13">还原出的路由树</text>
+  <g font-family="monospace" font-size="11" fill="#6b4f12">
+    <text x="576" y="408">root</text>
+    <text x="576" y="424">└─ api [Path]</text>
+    <text x="576" y="440">    ├─ users [Path]</text>
+    <text x="576" y="456">    │   ├─ {users_id} [Var]</text>
+    <text x="576" y="472">    │   └─ GET → page* [Param]</text>
+    <text x="576" y="488">    └─ data [Path]</text>
+    <text x="576" y="504">        └─ GET</text>
+    <text x="576" y="520">            └─ Accept [Header]</text>
+    <text x="576" y="536">                ├─ application/json</text>
+    <text x="576" y="552">                └─ text/html</text>
+  </g>
+  <text x="576" y="582" font-size="10" fill="#9a7b1f">★ 第④步是核心难点</text>
+
+  <!-- 左下：副作用说明 -->
+  <rect x="30" y="360" width="500" height="240" rx="10" fill="#ffffff" stroke="#cfd8dc" stroke-width="1"/>
+  <text x="46" y="384" font-size="13" font-weight="700" fill="#1f2d3d">调用一次的副作用</text>
+  <g font-size="12" fill="#37474f">
+    <text x="46" y="412">✓ 创建节点（路径/方法/参数/CT/Header/Cookie）</text>
+    <text x="46" y="434">✓ 合并相似路径为路径变量节点</text>
+    <text x="46" y="456">✓ 累加路径节点和方法节点的请求计数</text>
+    <text x="46" y="478">✓ 触发参数/路径变量的类型推断（物理+逻辑）</text>
+    <text x="46" y="500">✓ 累加参数 presenceCount（供必需性推断）</text>
+    <text x="46" y="522">✓ 输出结构化日志、更新统计指标</text>
+  </g>
+  <text x="46" y="566" font-size="10" fill="#5a6b7b">参数有三源：URL 查询参数 + 路径嵌入参数 + body 参数，第⑥步合并处理</text>
+</svg>

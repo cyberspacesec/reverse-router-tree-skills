@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 460" width="920" height="460" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="hbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6fbf8"/>
+      <stop offset="1" stop-color="#eaf3ee"/>
+    </linearGradient>
+    <marker id="ha" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#3aa676"/>
+    </marker>
+    <style>
+      .url-card { fill: #ffffff; stroke: #cfd8dc; stroke-width: 1; }
+      .url-txt { font-family: monospace; font-size: 12px; fill: #37474f; }
+      .url-tag { font-size: 10px; fill: #e57373; }
+      .url-tag2 { font-size: 10px; fill: #3aa676; }
+      .tree-line { font-family: monospace; font-size: 13px; fill: #1f2d3d; }
+      .var { fill: #3aa676; font-weight: 700; }
+      .lbl { font-size: 13px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="920" height="460" fill="url(#hbg)" rx="14"/>
+
+  <text x="460" y="32" text-anchor="middle" font-size="16" font-weight="700" fill="#1f2d3d">纯黑盒：从散落的 URL 还原路由结构</text>
+
+  <!-- 左：原始 URL -->
+  <text x="40" y="62" class="lbl" fill="#5a6b7b">抓包 / 流量 URL</text>
+  <g>
+    <rect class="url-card" x="30" y="74" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="92">/api/users/123</text>
+    <text class="url-tag" x="295" y="92">×3 变量值</text>
+
+    <rect class="url-card" x="30" y="110" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="128">/api/users/456</text>
+    <text class="url-tag" x="295" y="128">同接口</text>
+
+    <rect class="url-card" x="30" y="146" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="164">/api/users/789</text>
+    <text class="url-tag" x="295" y="164">同接口</text>
+
+    <rect class="url-card" x="30" y="182" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="200">/list?page=1&amp;size=10</text>
+    <text class="url-tag2" x="280" y="200">参数模式</text>
+
+    <rect class="url-card" x="30" y="218" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="236">POST /api/users (json)</text>
+
+    <rect class="url-card" x="30" y="254" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="272">GET /api/data (Accept:json)</text>
+
+    <rect class="url-card" x="30" y="290" width="300" height="28" rx="6"/>
+    <text class="url-txt" x="42" y="308">GET /api/home (Cookie:zh)</text>
+  </g>
+  <text x="30" y="338" font-size="11" fill="#90a4ae">看起来 7 个不同 URL，实为 4 个接口</text>
+
+  <!-- 中间箭头 + 标签 -->
+  <path d="M345,200 L425,200" stroke="#3aa676" stroke-width="2.5" fill="none" marker-end="url(#ha)"/>
+  <text x="385" y="190" text-anchor="middle" font-size="11" font-weight="700" fill="#3aa676">逆向</text>
+  <text x="385" y="218" text-anchor="middle" font-size="11" fill="#5a6b7b">路由树</text>
+
+  <!-- 右：还原的路由树 -->
+  <text x="560" y="62" class="lbl" fill="#3aa676">还原出的路由树</text>
+  <rect x="450" y="74" width="450" height="280" rx="10" fill="#ffffff" stroke="#3aa676" stroke-width="1.5"/>
+  <g class="tree-line">
+    <text x="466" y="100">root</text>
+    <text x="466" y="122">└─ api</text>
+    <text x="466" y="144">    ├─ users</text>
+    <text x="466" y="166">    │   ├─ <tspan class="var">{users_id}</tspan> [Var, integer]  ← 123/456/789</text>
+    <text x="466" y="188">    │   │   └─ GET</text>
+    <text x="466" y="210">    │   ├─ GET → page*, size*  [Param]</text>
+    <text x="466" y="232">    │   └─ POST → application/json [CT]</text>
+    <text x="466" y="254">    ├─ data</text>
+    <text x="466" y="276">    │   └─ GET → Accept [Header]</text>
+    <text x="466" y="298">    │           ├─ application/json</text>
+    <text x="466" y="320">    │           └─ text/html</text>
+    <text x="466" y="342">    └─ home → GET → lang [Cookie]</text>
+  </g>
+
+  <!-- 底部能力条 -->
+  <g transform="translate(30,380)">
+    <rect width="860" height="56" rx="10" fill="#1f2d3d"/>
+    <text x="20" y="22" fill="#fff" font-size="11" font-weight="700">还能进一步</text>
+    <text x="20" y="40" fill="#90a4ae" font-size="11">类型推断 · 必需参数 · OpenAPI 导出 · 日志统计</text>
+    <text x="240" y="32" fill="#3aa676" font-size="12" font-weight="700">→ phone/idcard 语义识别</text>
+    <text x="460" y="32" fill="#3aa676" font-size="12" font-weight="700">→ page* 必需参数</text>
+    <text x="640" y="32" fill="#3aa676" font-size="12" font-weight="700">→ Swagger UI 渲染</text>
+  </g>
+</svg>

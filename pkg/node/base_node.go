@@ -807,15 +807,11 @@ func (n *BaseNode[Context]) VisitLevelOrder(visitor func(Node[Context]) bool) {
 			}
 
 			// 直接将子节点加入队列
-			for _, child := range childNode.children {
-				queue = append(queue, child)
-			}
+			queue = append(queue, childNode.children...)
 			childNode.childMu.RUnlock()
 		} else {
 			// 如果不是BaseNode，则使用接口方法
-			for _, child := range current.GetChildren() {
-				queue = append(queue, child)
-			}
+			queue = append(queue, current.GetChildren()...)
 		}
 	}
 }

@@ -5,6 +5,10 @@
 *.so
 *.dylib
 
+# Go example binaries (e.g. `go build ./examples/quickstart` 产出的无扩展名二进制)
+/examples/quickstart/quickstart
+/quickstart
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -96,3 +100,11 @@ secrets.yml
 # Nuclei templates (custom)
 templates-custom/
 *.yaml.bak
+
+# VitePress 构建产物（website/.gitignore 也覆盖，此处兜底）
+website/docs/.vitepress/dist/
+website/docs/.vitepress/cache/
+website/node_modules/
+
+# superpowers skill 临时计划文件（本地用，不入库）
+docs/superpowers/
