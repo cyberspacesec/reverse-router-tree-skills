@@ -534,3 +534,79 @@ func TestOpenAPIExport_UnknownAuthFallsBackToHeader(t *testing.T) {
 		t.Error("未识别方案不应生成 security 声明")
 	}
 }
+
+// TestBuildSchema_LogicalTypeBranches 覆盖逻辑类型→schema 的所有分支。
+func TestBuildSchema_LogicalTypeBranches(t *testing.T) {
+	cases := []struct {
+		name        string
+		physical    string
+		logical     string
+		wantType    string
+		wantFormat  string
+	}{
+		{"integer逻辑", "", "integer", "integer", ""},
+		{"int逻辑", "", "int", "integer", ""},
+		{"float逻辑", "", "float", "number", ""},
+		{"decimal逻辑", "", "decimal", "number", ""},
+		{"currency逻辑", "", "currency", "number", ""},
+		{"percentage逻辑", "", "percentage", "number", ""},
+		{"boolean逻辑", "", "boolean", "boolean", ""},
+		{"date", "", "date", "string", "date"},
+		{"datetime", "", "datetime", "string", "date-time"},
+		{"time", "", "time", "string", "time"},
+		{"email", "", "email", "string", "email"},
+		{"url", "", "url", "string", "uri"},
+		{"uuid", "", "uuid", "string", "uuid"},
+		{"ipaddress", "", "ipaddress", "string", "ipv4"},
+		{"phone", "", "phone", "string", ""},
+		{"idcard", "", "idcard", "string", ""},
+		{"bankcard", "", "bankcard", "string", ""},
+		{"plate", "", "plate", "string", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := buildSchema(c.physical, c.logical, "", "")
+			if s.Type != c.wantType {
+				t.Errorf("Type = %q, want %q", s.Type, c.wantType)
+			}
+			if s.Format != c.wantFormat {
+				t.Errorf("Format = %q, want %q", s.Format, c.wantFormat)
+			}
+		})
+	}
+}
+
+// TestBuildSchema_PhysicalFallback 逻辑类型未命中时回退物理类型。
+func TestBuildSchema_PhysicalFallback(t *testing.T) {
+	cases := []struct {
+		physical string
+		wantType string
+	}{
+		{"integer", "integer"},
+		{"float", "number"},
+		{"boolean", "boolean"},
+		{"array", "array"},
+		{"object", "object"},
+		{"string", "string"},
+		{"", "string"}, // 未知物理类型默认 string
+	}
+	for _, c := range cases {
+		t.Run(c.physical, func(t *testing.T) {
+			s := buildSchema(c.physical, "", "", "")
+			if s.Type != c.wantType {
+				t.Errorf("physical=%q Type = %q, want %q", c.physical, s.Type, c.wantType)
+			}
+		})
+	}
+}
+
+// TestBuildSchema_PatternAndDefault 验证 pattern/default 透传。
+func TestBuildSchema_PatternAndDefault(t *testing.T) {
+	s := buildSchema("", "integer", "1", `^[0-9]+$`)
+	if s.Pattern != `^[0-9]+$` {
+		t.Errorf("Pattern = %q, want ^[0-9]+$", s.Pattern)
+	}
+	if s.Default != "1" {
+		t.Errorf("Default = %q, want 1", s.Default)
+	}
+}
