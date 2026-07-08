@@ -3,6 +3,7 @@
 > 从黑盒抓包流量还原 Web 应用的真实路由树，并导出为 OpenAPI 3.0.3 规范。
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8)](https://go.dev)
+[![Go Test](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml/badge.svg)](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 给一组抓到的 HTTP 请求，还你一棵还原好的路由树——识别路径变量、查询参数、Content-Type/Header/Cookie 路由维度，推断参数的物理与逻辑类型，最终导出成"黑盒版 Swagger"。
