@@ -610,3 +610,51 @@ func TestBuildSchema_PatternAndDefault(t *testing.T) {
 		t.Errorf("Default = %q, want 1", s.Default)
 	}
 }
+
+// TestOpenAPIExport_AllHttpMethods 验证全部 HTTP 方法都能正确导出到对应 pathItem 字段。
+func TestOpenAPIExport_AllHttpMethods(t *testing.T) {
+	r := router.NewReverseRouter()
+	// 禁用合并：本测试只验证方法→pathItem 字段映射，不关心合并行为
+	r.SetMergeConfig(router.MergeConfig{
+		SiblingMergeThreshold:       1000,
+		PatternSimilarityThreshold:  0.6,
+		SimilarLengthBreakThreshold: 0,
+		RequiredParamThreshold:      0.9,
+	})
+	// 每方法用完全独立的顶层路径前缀
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/g1"}, {"POST", "/p2"}, {"PUT", "/u3"}, {"PATCH", "/pa4"},
+		{"DELETE", "/d5"}, {"HEAD", "/h6"}, {"OPTIONS", "/o7"},
+	}
+	for _, c := range cases {
+		req := request.NewHttpRequest(c.path, nil, c.method, nil)
+		r.ReverseHttpRequest(req)
+	}
+
+	data, err := NewOpenAPIExporter().Export(r.Tree)
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+	doc := parseDoc(t, data)
+	paths := getPaths(t, doc)
+
+	for _, c := range cases {
+		item := getPathItem(t, paths, c.path)
+		lower := strings.ToLower(c.method)
+		if _, ok := item[lower]; !ok {
+			t.Errorf("路径 %s 应包含方法字段 %q，实际 keys: %v", c.path, lower, keysOf(item))
+		}
+	}
+}
+
+// keysOf 返回 map 的键（测试断言失败时辅助显示）
+func keysOf(m map[string]interface{}) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
