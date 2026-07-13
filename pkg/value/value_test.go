@@ -67,6 +67,59 @@ func TestValueMetric_GetTotalCount(t *testing.T) {
 	}
 }
 
+// TestValueMetric_ForEachValue 覆盖零拷贝遍历 API（生产类型推断热路径使用）。
+// 三个场景：完整遍历收集所有值、fn 返回 false 提前终止、空度量不调用 fn。
+func TestValueMetric_ForEachValue(t *testing.T) {
+	t.Run("完整遍历", func(t *testing.T) {
+		vm := NewValueMetric()
+		vm.AddValue("a")
+		vm.AddValue("b")
+		vm.AddValue("a")
+
+		got := make(map[string]int)
+		vm.ForEachValue(func(val string, count int) bool {
+			got[val] = count
+			return true
+		})
+
+		if len(got) != 2 {
+			t.Errorf("应遍历到2个不同值，实际: %d", len(got))
+		}
+		if got["a"] != 2 || got["b"] != 1 {
+			t.Errorf("遍历结果不正确: %+v", got)
+		}
+	})
+
+	t.Run("提前终止", func(t *testing.T) {
+		vm := NewValueMetric()
+		for i := 0; i < 10; i++ {
+			vm.AddValue(string(rune('a' + i)))
+		}
+
+		count := 0
+		vm.ForEachValue(func(val string, c int) bool {
+			count++
+			return count < 3 // 第 3 次返回 false 终止
+		})
+
+		if count != 3 {
+			t.Errorf("提前终止应只调用 3 次 fn，实际: %d", count)
+		}
+	})
+
+	t.Run("空度量", func(t *testing.T) {
+		vm := NewValueMetric()
+		called := false
+		vm.ForEachValue(func(val string, count int) bool {
+			called = true
+			return true
+		})
+		if called {
+			t.Error("空度量的 ForEachValue 不应调用 fn")
+		}
+	})
+}
+
 func TestValueMetric_ConcurrentAccess(t *testing.T) {
 	vm := NewValueMetric()
 	var wg sync.WaitGroup
