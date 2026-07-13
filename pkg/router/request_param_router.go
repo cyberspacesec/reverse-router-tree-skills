@@ -1,53 +1,38 @@
 package router
 
 import (
+	"strings"
+
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
-	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
-// RequestParamRouter 根据HTTP请求参数进行路由
+// RequestParamRouter 根据 HTTP 请求参数名进行路由
 type RequestParamRouter struct {
 }
 
 // 确保类型实现了接口
-var _ Router[[]*request.HttpRequestParam] = (*RequestParamRouter)(nil)
+var _ Router[string] = (*RequestParamRouter)(nil)
 
-// FindNode 根据请求参数查找匹配的节点
-func (x *RequestParamRouter) FindNode(n node.Node[node.NodeContext], requestParams []*request.HttpRequestParam) (node.Node[node.NodeContext], error) {
-	// 检查节点是否是 RequestParamNode 类型（指针类型断言）
-	requestParamNode, ok := n.(*node.RequestParamNode)
-	if !ok {
+// FindNode 从起点节点 n 查找名为 paramName 的查询参数子节点。
+//
+// 起点不再限定为 *RequestParamNode，可从方法节点等任意节点出发，
+// 便于 ReverseRouter 查询侧复用。参数名会被转为小写以匹配参数节点的
+// 存储 key（与构建侧 findOrCreateParamNode / NewRequestParamNode 一致）。
+//
+// 参数:
+//   - n: 起始节点
+//   - paramName: 参数名（大小写不敏感）
+//
+// 返回:
+//   - 命中的参数子节点；未命中或入参非法时返回 nil
+func (x *RequestParamRouter) FindNode(n node.Node[node.NodeContext], paramName string) (node.Node[node.NodeContext], error) {
+	if n == nil || paramName == "" {
 		return nil, nil
 	}
-
-	// 如果没有参数，则看是否能匹配没有参数的节点
-	if len(requestParams) == 0 {
-		if requestParamNode.GetChildCount() == 0 {
-			return requestParamNode, nil
-		}
-		return nil, nil
+	// 参数名统一小写（与 request_param_node.go NewRequestParamNode 对齐）
+	// 与查询侧 IsNeedRequest 现状一致：不加 type 校验
+	if child := n.FindChildByKey(strings.ToLower(paramName)); child != nil {
+		return child, nil
 	}
-
-	// 遍历所有请求参数，尝试找到匹配的子节点
-	currentNode := node.Node[node.NodeContext](requestParamNode)
-	for _, requestParam := range requestParams {
-		// 首先尝试精确匹配参数名和值
-		paramKey := requestParam.Name + "=" + requestParam.Value
-		childNode := currentNode.FindChildByKey(paramKey)
-
-		// 如果没找到，尝试匹配参数名的通配符
-		if childNode == nil {
-			paramKey = requestParam.Name + "=*"
-			childNode = currentNode.FindChildByKey(paramKey)
-		}
-
-		// 如果仍未找到，则无法继续匹配
-		if childNode == nil {
-			return nil, nil
-		}
-
-		currentNode = childNode
-	}
-
-	return currentNode, nil
+	return nil, nil
 }

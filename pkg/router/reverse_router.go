@@ -59,6 +59,12 @@ type ReverseRouter struct {
 	bodyParser    *request.BodyParser
 	logger        *RouterLogger
 	stats         *RouterStats
+	// pathRouter/paramRouter/ctRouter 是查询侧复用的内部路由组件，无状态，
+	// 构造后只读。locateMethodNode/IsNeedRequest/FindRouteNode 通过它们查找
+	// 路径末端/参数/Content-Type 子节点，消除重复的 FindChildByKey 内联逻辑。
+	pathRouter  *RequestPathRouter
+	paramRouter *RequestParamRouter
+	ctRouter    *RequestContentTypeRouter
 	// mergeMu 保护 checkAndMergeSiblings/mergeSiblings 的整个临界区。
 	// 合并涉及"读兄弟数→决策→删旧节点→建变量节点→迁移孙节点"多步，
 	// BaseNode.childMu 只保护单次子节点操作，无法保证整体原子——
@@ -78,6 +84,9 @@ func NewReverseRouter() *ReverseRouter {
 		bodyParser:    request.NewBodyParser(),
 		logger:        NewRouterLogger(),
 		stats:         NewRouterStats(),
+		pathRouter:    &RequestPathRouter{},
+		paramRouter:   &RequestParamRouter{},
+		ctRouter:      &RequestContentTypeRouter{},
 	}
 }
 
@@ -92,6 +101,9 @@ func NewReverseRouterWithTree(t *tree.Tree) *ReverseRouter {
 		bodyParser:    request.NewBodyParser(),
 		logger:        NewRouterLogger(),
 		stats:         NewRouterStats(),
+		pathRouter:    &RequestPathRouter{},
+		paramRouter:   &RequestParamRouter{},
+		ctRouter:      &RequestContentTypeRouter{},
 	}
 }
 
@@ -905,27 +917,26 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 		return true
 	}
 
-	// 检查参数
+	// 检查参数（复用 paramRouter，内部做 ToLower）
 	if len(params) > 0 {
 		for _, param := range params {
-			paramName := strings.ToLower(param.Name)
-			paramChild := methodChild.FindChildByKey(paramName)
+			paramChild, _ := x.paramRouter.FindNode(methodChild, param.Name)
 			if paramChild == nil {
 				return true
 			}
 		}
 	}
 
-	// 检查Content-Type
+	// 检查Content-Type（复用 ctRouter）
 	contentType := req.Headers.GetContentType()
 	if contentType != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
-		ctChild := methodChild.FindChildByKey(contentType)
+		ctChild, _ := x.ctRouter.FindNode(methodChild, contentType)
 		if ctChild == nil {
 			return true
 		}
 	}
 
-	// 检查路由Header
+	// 检查路由Header（两层查找，仍内联：无对应 HeaderRouter 组件）
 	for headerName, normalize := range routingHeaders {
 		val := req.Headers.Get(headerName)
 		if val == "" {
@@ -946,7 +957,7 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 		}
 	}
 
-	// 检查Cookie路由
+	// 检查Cookie路由（两层查找，仍内联：无对应 CookieRouter 组件）
 	cookieHeader := req.Headers.Get("Cookie")
 	if cookieHeader != "" {
 		cookies := request.ParseCookies(cookieHeader)
@@ -1009,32 +1020,23 @@ func (x *ReverseRouter) FindRouteNode(req *request.HttpRequest) (methodNode, con
 
 	contentType := req.Headers.GetContentType()
 	if contentType != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
-		contentTypeNode = methodNode.FindChildByKey(contentType)
+		contentTypeNode, _ = x.ctRouter.FindNode(methodNode, contentType)
 	}
 
 	return methodNode, contentTypeNode, nil
 }
 
 // locateMethodNode 沿路径段逐级匹配定位方法节点。
-// 命中规则：路径段精确匹配，未命中固定路径时回退到路径变量节点；
-// 方法节点按 key（大写方法名）匹配。路径或方法未命中返回 nil。
+// 复用 pathRouter.FindNode 完成路径段下钻（含路径变量无条件回退），
+// 再按 key（大写方法名）匹配方法子节点。路径或方法未命中返回 nil。
 //
 // IsNeedRequest 与 FindRouteNode 共用本方法，保证两者路由定位逻辑一致。
 func (x *ReverseRouter) locateMethodNode(paths []*request.HttpRequestPath, method string) node.Node[node.NodeContext] {
-	currentNode := node.Node[node.NodeContext](x.Tree.Root)
-	for _, pathSegment := range paths {
-		child := currentNode.FindChildByKey(pathSegment.Path)
-		if child == nil {
-			pathVarChild := currentNode.GetChildByType("request_path_variable")
-			if pathVarChild != nil {
-				currentNode = pathVarChild
-				continue
-			}
-			return nil
-		}
-		currentNode = child
+	pathEnd, _ := x.pathRouter.FindNode(node.Node[node.NodeContext](x.Tree.Root), paths)
+	if pathEnd == nil {
+		return nil
 	}
-	return currentNode.FindChildByKey(method)
+	return pathEnd.FindChildByKey(method)
 }
 
 // FindNode 是早期预留的通用查找存根，语义不实用（签名与 HttpRequest 查询不匹配），
