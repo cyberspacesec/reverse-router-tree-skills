@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/router"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/tree"
@@ -652,6 +653,99 @@ func TestOpenAPIExport_AllHttpMethods(t *testing.T) {
 
 // keysOf 返回 map 的键（测试断言失败时辅助显示）
 func keysOf(m map[string]interface{}) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
+
+// === 私有函数直接测试 ===
+
+// TestSanitizeOperationID 覆盖 sanitizeOperationID 各分支：
+// 字母数字下划线保留、{变量}去花括号、其它字符转下划线、首尾下划线裁剪、连续下划线合并、空串回退 root。
+func TestSanitizeOperationID(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"/api/users/{id}/detail", "api_users_id_detail"}, // 斜杠→_，{}去除
+		{"api__users", "api_users"},                        // 连续下划线合并
+		{"___", "root"},                                    // 全下划线→空→root
+		{"用户/路径", "root"},                               // 非ASCII全转_后Trim为空→root
+		{"GET", "GET"},                                     // 纯字母保留
+		{"a-b-c", "a_b_c"},                                 // 连字符→_
+	}
+	for _, c := range cases {
+		if got := sanitizeOperationID(c.in); got != c.want {
+			t.Errorf("sanitizeOperationID(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// 表中已覆盖非 ASCII 全转 _ 后回退 root 的分支
+	_ = sanitizeOperationID("用户")
+}
+
+// TestSecuritySchemeFromAuth 覆盖 bearer/basic/digest 三分支与非 Authorization 头/未知 scheme 的 false 分支。
+func TestSecuritySchemeFromAuth(t *testing.T) {
+	// 三种合法 scheme
+	for _, scheme := range []string{"bearer", "basic", "digest", "Bearer", "BASIC"} {
+		s, ok := securitySchemeFromAuth("Authorization", scheme)
+		if !ok {
+			t.Errorf("Authorization + %s 应识别为鉴权方案", scheme)
+		}
+		if s.def.Type != "http" {
+			t.Errorf("scheme %s 的 type 应为 http，实际 %s", scheme, s.def.Type)
+		}
+	}
+	// 非 Authorization 头
+	if _, ok := securitySchemeFromAuth("X-Api-Key", "bearer"); ok {
+		t.Error("非 Authorization 头应返回 false")
+	}
+	// 未知 scheme
+	if _, ok := securitySchemeFromAuth("Authorization", "apikey"); ok {
+		t.Error("未知 scheme 应返回 false")
+	}
+}
+
+// TestBuildRequestBody_CharsetAndOptional 覆盖 buildRequestBody 的 charset 规范化分支
+// 与 IncludeOptionalParameters=false 跳过可选参数分支。
+func TestBuildRequestBody_CharsetAndOptional(t *testing.T) {
+	// 带可选参数 + charset Content-Type
+	reqParam := node.NewRequestParamNode("opt", "", false)   // 可选
+	reqParam2 := node.NewRequestParamNode("req", "", true)    // 必需
+	ep := &endpoint{
+		contentType: "application/json; charset=utf-8",
+		bodyParams:  []*node.RequestParamNode{reqParam, reqParam2},
+	}
+
+	// IncludeOptionalParameters=false：应跳过 opt，保留 req
+	exp := &OpenAPIExporter{IncludeOptionalParameters: false}
+	body := exp.buildRequestBody(ep)
+	content, ok := body.Content["application/json"] // charset 已规范化
+	if !ok {
+		t.Errorf("charset 应被裁剪，应存在 application/json key，实际 keys: %v", keysOfMap(body.Content))
+	}
+	props := content.Schema.Properties
+	if _, has := props["opt"]; has {
+		t.Error("IncludeOptionalParameters=false 时可选参数 opt 不应出现")
+	}
+	if _, has := props["req"]; !has {
+		t.Error("必需参数 req 应保留")
+	}
+	if len(content.Schema.Required) != 1 || content.Schema.Required[0] != "req" {
+		t.Errorf("required 应仅含 req，实际 %v", content.Schema.Required)
+	}
+
+	// IncludeOptionalParameters=true：opt 也应出现
+	exp2 := &OpenAPIExporter{IncludeOptionalParameters: true}
+	body2 := exp2.buildRequestBody(ep)
+	props2 := body2.Content["application/json"].Schema.Properties
+	if _, has := props2["opt"]; !has {
+		t.Error("IncludeOptionalParameters=true 时可选参数 opt 应出现")
+	}
+}
+
+// keysOfMap 返回 map 的键（断言失败辅助）
+func keysOfMap(m map[string]openAPIMediaType) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {
 		ks = append(ks, k)
