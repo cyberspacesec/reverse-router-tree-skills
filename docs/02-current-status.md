@@ -205,7 +205,7 @@
 9. ✅ ValueMetric 缺并发安全保护
 10. ✅ PhysicalTypeInferenceRule.Infer() 未连接节点上下文
 11. ✅ VisitChildren 并发数据竞态
-12. ✅ shouldMergeAsVariable 中 similar_length_strings 被短路
+12. ✅ 路径合并判定中 similar_length_strings 被短路（原 shouldMergeAsVariable，现 findMergeableSiblings）
 13. ✅ RequestParamNode.IsMatch() 对非必需参数过于宽松
 14. ✅ 路径参数识别（key=value 格式路径段）
 15. ✅ ReverseRouter.urlParser 并发竞态 bug

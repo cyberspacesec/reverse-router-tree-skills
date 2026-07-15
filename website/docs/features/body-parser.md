@@ -4,7 +4,7 @@
 
 ## 按 Content-Type 分发
 
-源码：[`pkg/request/body_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go) · [`Parse` (body_parser.go:32-67)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go#L32-L67)
+源码：[`pkg/request/body_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go) · [`Parse` (body_parser.go:32-66)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go#L32-L66)
 
 ```mermaid
 flowchart TD

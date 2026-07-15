@@ -3,7 +3,7 @@
 > 这一页用一组真实的 HTTP 请求，把项目的全部能力一次跑通，并解释输出每一行的含义。
 
 ::: tip 跟着源码读
-本示例涉及的核心入口：[`NewReverseRouter` (reverse_router.go:60-71)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L60-L71) · [`ReverseHttpRequest` (reverse_router.go:143-256)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L143-L256) · [`InferRequiredParams` (reverse_router.go:841-874)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L841-L874)。每个能力点的实现原理见对应 [功能详解](/features/reverse-flow)。
+本示例涉及的核心入口：[`NewReverseRouter` (reverse_router.go:77-91)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L77-L91) · [`ReverseHttpRequest` (reverse_router.go:163-275)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L163-L275) · [`InferRequiredParams` (reverse_router.go:849-881)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L849-L881)。每个能力点的实现原理见对应 [功能详解](/features/reverse-flow)。
 :::
 
 ## 喂进去的请求

@@ -33,9 +33,9 @@ users
 
 ## 合并判定逻辑
 
-源码：[`shouldMergeAsVariable` (reverse_router.go:492-538)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L492-L538) · [`checkAndMergeSiblings` (reverse_router.go:296-321)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L296-L321) · [`findMergeableSiblings` (reverse_router.go:326-372)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L372)
+源码：[`findMergeableSiblings` (reverse_router.go:361-433)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L361-L433) · [`checkAndMergeSiblings` (reverse_router.go:326-356)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L356) · [`mergeSiblings` (reverse_router.go:554-610)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L554-L610)
 
-判定是**逐个兄弟**进行的（`shouldMergeAsVariable`），不是简单按整体匹配率分档。核心规则：
+判定是**逐个兄弟**进行的（`findMergeableSiblings` 内逐值调 `valueMatchesPattern`），不是简单按整体匹配率分档。核心规则：
 
 ```
 对一组兄弟节点，PatternDetector.DetectPattern(values) → (patternName, similarity)
@@ -63,7 +63,7 @@ flowchart TD
     A -- 是 --> B[findMergeableSiblings 挑匹配模式子集]
     B --> C{可合并数 >= 3?}
     C -- 否 --> END2[跳过 MergeSkipped++]
-    C -- 是 --> D[shouldMergeAsVariable]
+    C -- 是 --> D["findMergeableSiblings 内部<br/>按模式分档判定"]
     D --> E{pattern 类型}
     E -->|similar_length_strings| F{兄弟数 >= 6?}
     F -- 是 --> MERGE[mergeSiblings]

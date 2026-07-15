@@ -75,7 +75,7 @@ ReverseHttpRequest(request)
 
 ## 第 ① 步：解析 URL
 
-源码：[`pkg/request/url_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go) · 调用点 [`reverse_router.go:153-159`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L153-L159)
+源码：[`pkg/request/url_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go) · 调用点 [`reverse_router.go:166-174`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L166-L174)
 
 ```go
 urlParser := request.NewUrlParser(req.Url)
@@ -99,7 +99,7 @@ params: [{name:"page", value:"1"},           ← 参数名小写（Page→page, 
 
 ## 第 ② 步：路径匹配/创建
 
-源码：[`findOrCreatePathNode` (reverse_router.go:262-293)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L262-L293)
+源码：[`findOrCreatePathNode` (reverse_router.go:281-323)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L281-L323)
 
 逐段在树里找，**三段式匹配**：精确路径 → 路径变量 `IsMatch` → 新建节点。
 
@@ -120,7 +120,7 @@ flowchart TD
 
 ## 第 ③ 步：路径参数识别
 
-源码：[`pkg/request/http_request_path.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/http_request_path.go) · 集成点 [`reverse_router.go:164-185`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L164-L185)
+源码：[`pkg/request/http_request_path.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/http_request_path.go) · 集成点 [`reverse_router.go:176-200`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L176-L200)
 
 某些路径段里直接嵌了 `key=value`（如 Spring 的路径参数）：
 
@@ -161,7 +161,7 @@ users                            users
 | `similar_length_strings` | 默认不合并，≥6 个突破 | 保护固定路径名 |
 | 都不满足 | — | 不合并 |
 
-合并的完整决策链在 [`shouldMergeAsVariable` (reverse_router.go:492-538)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L492-L538)，触发入口是 [`checkAndMergeSiblings` (reverse_router.go:296-321)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L296-L321)：
+合并的完整决策链在 [`findMergeableSiblings` (reverse_router.go:361-433)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L361-L433)，触发入口是 [`checkAndMergeSiblings` (reverse_router.go:326-356)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L356)：
 
 ```mermaid
 flowchart TD
@@ -171,7 +171,7 @@ flowchart TD
     C -- 是 --> D[findMergeableSiblings<br/>挑出匹配模式的子集]
     D --> E{可合并数 >= 阈值3?}
     E -- 否 --> Z2[跳过，MergeSkipped++]
-    E -- 是 --> F[shouldMergeAsVariable]
+    E -- 是 --> F[findMergeableSiblings]
     F --> G{模式类型?}
     G -->|similar_length_strings| H{兄弟数 >= 6?}
     H -- 是 --> M[mergeSiblings 合并]
@@ -189,7 +189,7 @@ flowchart TD
 
 ## 第 ⑤ 步：HTTP 方法节点
 
-源码：[`findOrCreateMethodNode` (reverse_router.go:741-754)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L741-L754) · 调用点 [`reverse_router.go:187-196`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L187-L196)
+源码：[`findOrCreateMethodNode` (reverse_router.go:749-761)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L749-L761) · 调用点 [`reverse_router.go:201-211`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L201-L211)
 
 ```
 users
@@ -201,7 +201,7 @@ users
 
 ## 第 ⑥ 步：查询 + body 参数节点
 
-源码：[`processParams` (reverse_router.go:756-765)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L756-L765) · [`findOrCreateParamNode` (reverse_router.go:767-816)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L767-L816) · [`pkg/request/body_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go)
+源码：[`processParams` (reverse_router.go:764-771)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L764-L771) · [`findOrCreateParamNode` (reverse_router.go:775-823)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L775-L823) · [`pkg/request/body_parser.go`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/body_parser.go)
 
 参数有三个来源，合并后统一处理：
 
@@ -252,7 +252,7 @@ POST
 
 ## 第 ⑦ 步：Content-Type 节点
 
-源码：[`findOrCreateContentTypeNode` (reverse_router.go:818-839)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L818-L839) · 调用点 [`reverse_router.go:224-231`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L224-L231)
+源码：[`findOrCreateContentTypeNode` (reverse_router.go:826-838)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L826-L838) · 调用点 [`reverse_router.go:243-249`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L243-L249)
 
 仅 POST/PUT/PATCH 创建：
 
@@ -285,7 +285,7 @@ data
 
 ## 第 ⑨ 步：Cookie 路由节点 & 请求计数
 
-源码：`processCookies` · 计数 [`reverse_router.go:247-252`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L247-L252)
+源码：`processCookies` · 计数 [`reverse_router.go:267-270`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L267-L270)
 
 ```
 GET /api/home (Cookie: lang=zh-CN)
@@ -302,7 +302,7 @@ home
 
 ## 副作用清单
 
-调用一次 `ReverseHttpRequest`（[源码 reverse_router.go:144-255](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L144-L255)），可能：
+调用一次 `ReverseHttpRequest`（[源码 reverse_router.go:163-275](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L163-L275)），可能：
 
 - ✅ 在树里创建新节点（路径/方法/参数/CT/Header/Cookie）
 - ✅ 合并相似路径为路径变量节点（`mergeSiblings`）

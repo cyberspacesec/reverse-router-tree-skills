@@ -54,7 +54,7 @@ request_path_variable ✨      ← 动态：合并出来的变量（唯一 IsDyn
 
 ### RequestPathVariableNode `request_path_variable`
 
-源码：[`NewRequestPathVariableNode` (request_path_variable_node.go:38-67)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L38-L67) · [`IsMatch` (request_path_variable_node.go:86-110)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L86-L110) · [`IsDynamic` (request_path_variable_node.go:257)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L257)
+源码：[`NewRequestPathVariableNode` (request_path_variable_node.go:41-64)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L41-L64) · [`IsMatch` (request_path_variable_node.go:77-101)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L77-L101) · [`IsDynamic` (request_path_variable_node.go:230)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L230)
 
 **核心动态节点**——由多个相似兄弟路径合并而成。
 
@@ -76,7 +76,7 @@ users                            users
 
 ### RequestParamNode `request_param`
 
-源码：[`NewRequestParamNode` (request_param_node.go:37-58)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L37-L58) · [`IsMatch` (request_param_node.go:66-89)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L66-L89) · `IncrementPresenceCount` 在 [`request_param_node.go:140`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L140)
+源码：[`NewRequestParamNode` (request_param_node.go:42-63)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L42-L63) · [`IsMatch` (request_param_node.go:71-93)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L71-L93) · `IncrementPresenceCount` 在 [`request_param_node.go:145`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L145)
 
 查询参数 / body 参数节点。承载的能力最多：
 

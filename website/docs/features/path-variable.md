@@ -16,14 +16,14 @@
 
 ## 识别思路
 
-源码：触发与检测在 [`checkAndMergeSiblings` (reverse_router.go:296-321)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L296-L321) · [`findMergeableSiblings` (reverse_router.go:326-372)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L372) · 检测器 [`NewPatternDetector` (reverse_router.go:395-433)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L395-L433)
+源码：触发与检测在 [`checkAndMergeSiblings` (reverse_router.go:326-356)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L356) · [`findMergeableSiblings` (reverse_router.go:361-433)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L361-L433) · 检测器 [`NewPatternDetector` (reverse_router.go:457-493)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L457-L493)
 
 ```mermaid
 flowchart TD
     A["新路径段进树<br/>作为 path 兄弟"] --> B{"父下 path 兄弟数 >= 3?"}
     B -- 否 --> R[保持固定路径]
     B -- 是 --> C["findMergeableSiblings<br/>PatternDetector.DetectPattern(values)"]
-    C --> D["逐个兄弟 shouldMergeAsVariable"]
+    C --> D["逐个兄弟 valueMatchesPattern"]
     D --> E{"模式 + 匹配率达标?"}
     E -- 否 --> R
     E -- 是 --> F["mergeSiblings<br/>只合并匹配子集"]
@@ -49,7 +49,7 @@ flowchart TD
 
 ## PatternDetector 模式
 
-源码：[`PatternDetector` 类型定义 (reverse_router.go:386-395)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L386-L395) · [`DetectPattern` (reverse_router.go:435-490)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L435-L490)
+源码：[`PatternDetector` 类型定义 (reverse_router.go:448-451)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L448-L451) · [`DetectPattern` (reverse_router.go:497-551)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L497-L551)
 
 检测器按**从具体到通用**的顺序尝试，具体模式在前，避免身份证号被误判成纯整数：
 
@@ -86,7 +86,7 @@ flowchart TD
 
 ## IsMatch：变量节点怎么匹配新值
 
-源码：[`RequestPathVariableNode.IsMatch` (request_path_variable_node.go:86-110)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L86-L110) · [`hasFileExtension` (request_path_variable_node.go:114-132)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L114-L132)
+源码：[`RequestPathVariableNode.IsMatch` (request_path_variable_node.go:77-101)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L77-L101) · [`hasFileExtension` (request_path_variable_node.go:105-123)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L105-L123)
 
 ```mermaid
 flowchart TD
@@ -115,7 +115,7 @@ PathVariableNode.IsMatch(segment)
 
 ## 文件扩展名排除
 
-源码：[`hasFileExtension` (request_path_variable_node.go:114-132)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L114-L132) 检查段是否含 `.` 分隔的扩展名。
+源码：[`hasFileExtension` (request_path_variable_node.go:105-123)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L105-L123) 检查段是否含 `.` 分隔的扩展名。
 
 有扩展名的路径段（`data.json`、`style.css`）通常是固定资源，不作为变量：
 

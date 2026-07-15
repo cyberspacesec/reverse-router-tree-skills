@@ -17,7 +17,7 @@
 
 ## 结构化日志 RouterLogger
 
-源码：[`RouterLogger` 类型与构造 (logger.go:28-90)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/logger.go#L28-L90) · 五级定义 [`LogLevel` (logger.go:12-26)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/logger.go#L12-L26)；统计计数器与快照见 [`GetStats` (reverse_router.go:129-133)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L129-L133) · [`ResetStats` (reverse_router.go:134-137)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L134-L137)
+源码：[`RouterLogger` 类型与构造 (logger.go:28-90)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/logger.go#L28-L90) · 五级定义 [`LogLevel` (logger.go:12-26)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/logger.go#L12-L26)；统计计数器与快照见 [`GetStats` (reverse_router.go:153-155)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L153-L155) · [`ResetStats` (reverse_router.go:158-160)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L158-L160)
 
 封装 Go 标准库 `log/slog`，输出带时间戳的键值对：
 

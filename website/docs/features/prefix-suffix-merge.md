@@ -17,7 +17,7 @@
 
 ## 触发条件
 
-源码：[`DetectPattern` (reverse_router.go:435-490)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L435-L490) · [`detectPrefixPattern` (reverse_router.go:1019-1055)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1019-L1055) · [`detectSuffixPattern` (reverse_router.go:1057-1089)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1057-L1089)
+源码：[`DetectPattern` (reverse_router.go:497-551)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L497-L551) · [`detectPrefixPattern` (reverse_router.go:1078-1110)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1078-L1110) · [`detectSuffixPattern` (reverse_router.go:1116-1147)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1116-L1147)
 
 在 `DetectPattern` 中，当结构化模式（integer/uuid/phone 等）匹配率不足（`< 0.5`）时，回退检测前缀/后缀：
 
@@ -56,7 +56,7 @@ flowchart TD
 
 ## 变量名生成
 
-源码：[`inferVariableNameWithContext` (reverse_router.go:636-657)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L636-L657) · [`trimTrailingSeparator` (reverse_router.go:712-724)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L712-L724) · [`trimTrailingDigits` (reverse_router.go:1129-1137)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1129-L1137) · 公共前缀 [`longestCommonPrefix` (reverse_router.go:1090-1127)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1090-L1127)
+源码：[`inferVariableNameWithContext` (reverse_router.go:644-665)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L644-L665) · [`trimTrailingSeparator` (reverse_router.go:722-732)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L722-L732) · [`trimTrailingDigits` (reverse_router.go:1190-1196)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1190-L1196) · 公共前缀 [`longestCommonPrefix` (reverse_router.go:1150-1166)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L1150-L1166)
 
 ```
 前缀模式（公共前缀 + 变量后缀）:
@@ -76,7 +76,7 @@ flowchart TD
 
 ## 正则生成
 
-源码：[`inferPatternRegexWithContext` (reverse_router.go:689-710)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L689-L710) · 不带上下文版 [`inferPatternRegex` (reverse_router.go:659-687)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L659-L687)
+源码：[`inferPatternRegexWithContext` (reverse_router.go:699-718)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L699-L718) · 不带上下文版 [`inferPatternRegex` (reverse_router.go:668-695)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L668-L695)
 
 用 `regexp.QuoteMeta` 转义公共前缀/后缀（防止正则元字符注入），拼接变量部分 `[0-9]+`：
 

@@ -4,7 +4,7 @@
 
 ## 参数规范化
 
-源码：[`UrlParser.Parse` (url_parser.go:16-60)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L16-L60) · [`normalizePathSegment` (url_parser.go:62)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L62)
+源码：[`UrlParser.Parse` (url_parser.go:16-55)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L16-L55) · [`normalizePathSegment` (url_parser.go:62)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L62)
 
 `UrlParser.Parse()` 对参数做三件事：
 
@@ -41,7 +41,7 @@ HTTP 参数名大小写不敏感是约定（`Page`/`page`/`PAGE` 是同一个参
 
 ### 多值参数
 
-源码：`findOrCreateParamNode` 在 [`reverse_router.go:767`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L767) 附近；`RequestParamNode.ObserveValue` / `multiValue` 在 [`request_param_node.go:60-90`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L60-L90)
+源码：`findOrCreateParamNode` 在 [`reverse_router.go:767`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L767) 附近；`IsMultiValue` / `SetMultiValue` 标记在 [`request_param_node.go:194-206`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L194-L206)
 
 同一参数名出现多次（`?tag=go&tag=web`）：
 
@@ -61,7 +61,7 @@ tag [Param, multi_value=true]
 
 ## 类型推断
 
-源码：`RequestParamNode` 构造与值观察在 [`request_param_node.go:37-60`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L37-L60)，推断由 `ChainTypeInferenceRule` 触发（见 [类型推断体系](/architecture/type-inference)）。
+源码：`RequestParamNode` 构造与值观察在 [`request_param_node.go:42-63`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L42-L63)，推断由 `ChainTypeInferenceRule` 触发（见 [类型推断体系](/architecture/type-inference)）。
 
 参数节点创建时和每次观察新值时自动推断物理+逻辑类型：
 
@@ -97,7 +97,7 @@ GET /api/sms?phone=13812345678
 
 ## 出现计数（presenceCount）
 
-源码：`IncrementPresenceCount` 在 [`request_param_node.go:140`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L140) 用 `atomic.AddInt64`；`GetPresenceCount` 在 [`request_param_node.go:146`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L146) 用 `atomic.LoadInt64`。
+源码：`IncrementPresenceCount` 在 [`request_param_node.go:145`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L145) 用 `atomic.AddInt64`；`GetPresenceCount` 在 [`request_param_node.go:150`](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L150) 用 `atomic.LoadInt64`。
 
 每次参数出现（不管值变没变），`presenceCount` 原子加 1。这是 [必需参数推断](/features/required-params) 的依据：
 

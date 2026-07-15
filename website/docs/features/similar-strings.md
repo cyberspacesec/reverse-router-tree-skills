@@ -20,7 +20,7 @@
 
 ## 突破规则：数量信号
 
-源码：`similar_length_strings` 判定在 [`shouldMergeAsVariable` (reverse_router.go:492-537)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L492-L537)，与 `SimilarLengthBreakThreshold`（默认 6）比较；阈值定义在 [`MergeConfig` (reverse_router.go:16-46)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L16-L46)。
+源码：`similar_length_strings` 判定在 [`findMergeableSiblings` (reverse_router.go:403-410)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L403-L410)，与 `SimilarLengthBreakThreshold`（默认 6）比较；阈值定义在 [`MergeConfig` (reverse_router.go:17-39)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L17-L39)。
 
 ```mermaid
 flowchart TD

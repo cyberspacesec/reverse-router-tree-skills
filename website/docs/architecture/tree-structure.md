@@ -45,7 +45,7 @@ root
 
 ## 树的构造规则
 
-源码：节点查找/创建在 [`findOrCreatePathNode` (reverse_router.go:262-294)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L262-L294) · 合并检查 [`checkAndMergeSiblings` (reverse_router.go:296-321)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L296-L321) · 树容器 [`Tree` (tree.go:18-95)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/tree/tree.go#L18-L95)
+源码：节点查找/创建在 [`findOrCreatePathNode` (reverse_router.go:281-323)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L281-L323) · 合并检查 [`checkAndMergeSiblings` (reverse_router.go:326-356)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L326-L356) · 树容器 [`Tree` (tree.go:18-95)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/tree/tree.go#L18-L95)
 
 ```mermaid
 flowchart TD

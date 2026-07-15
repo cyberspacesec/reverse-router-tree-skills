@@ -4,7 +4,7 @@
 
 ## 各层的并发保护
 
-源码：节点多锁 [`BaseNode` 锁字段 (base_node.go:44-52)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/base_node.go#L44-L52) · 值统计锁 [`ValueMetric` (value.go:18-32)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/value/value.go#L18-L32) · 统计原子 [`RouterStats` / `StatsSnapshot` (reverse_router.go:129-137)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L129-L137) · 合并临界区 [`mergeMu` (reverse_router.go:58-63)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L58-L63) · 节点类型字段 [`typeMu` (request_path_variable_node.go:24-29)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L24-L29)
+源码：节点多锁 [`BaseNode` 锁字段 (base_node.go:44-52)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/base_node.go#L44-L52) · 值统计锁 [`ValueMetric` (value.go:18-32)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/value/value.go#L18-L32) · 统计原子 [`RouterStats` / `StatsSnapshot` (logger.go:195-238)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/logger.go#L195-L238) · 合并临界区 [`mergeMu` (reverse_router.go:68-74)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L68-L74) · 节点类型字段 [`typeMu` (request_path_variable_node.go:24-29)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L24-L29)
 
 ```mermaid
 flowchart LR

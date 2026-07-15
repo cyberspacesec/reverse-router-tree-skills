@@ -4,7 +4,7 @@
 
 ## 边界条件总表
 
-源码：尾部/连续斜杠在 [`normalizePath` (tree.go:198-225)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/tree/tree.go#L198-L225) 与 [`UrlParser.Parse` (url_parser.go:16-60)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L16-L60)；URL 解码/路径遍历在 [`normalizePathSegment` (url_parser.go:62)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L62)；文件扩展名在 [`hasFileExtension` (request_path_variable_node.go:114-132)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L114-L132)；路径参数在 [`detectPathParam` (http_request_path.go:22-43)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/http_request_path.go#L22-L43)
+源码：尾部/连续斜杠在 [`normalizePath` (tree.go:198-225)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/tree/tree.go#L198-L225) 与 [`UrlParser.Parse` (url_parser.go:16-55)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L16-L55)；URL 解码/路径遍历在 [`normalizePathSegment` (url_parser.go:62)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/url_parser.go#L62)；文件扩展名在 [`hasFileExtension` (request_path_variable_node.go:105-123)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_path_variable_node.go#L105-L123)；路径参数在 [`detectPathParam` (http_request_path.go:22-43)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/request/http_request_path.go#L22-L43)
 
 | 边界条件 | 示例 | 处理方式 | 处理位置 |
 |----------|------|----------|----------|

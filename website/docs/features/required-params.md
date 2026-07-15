@@ -22,7 +22,7 @@ GET /api/users?page=4&size=30&callback=x  page, size, callback 出现
 func (x *ReverseRouter) InferRequiredParams() int
 ```
 
-源码：[`InferRequiredParams` (reverse_router.go:841-874)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L841-L874) · [`InferRequired` (request_param_node.go:170-181)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L170-L181)
+源码：[`InferRequiredParams` (reverse_router.go:849-881)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L849-L881) · [`InferRequired` (request_param_node.go:175-192)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L175-L192)
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ flowchart TD
   样本不足 (总请求次数 ≤ 1)                   → 保持默认（不轻易判定）
 ```
 
-`presenceCount` 在 [`findOrCreateParamNode` (reverse_router.go:767)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L767) 里每次参数出现用 `atomic.AddInt64` 累加，[`GetPresenceCount` (request_param_node.go:146)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L146) 用 `atomic.LoadInt64` 读取——线程安全。
+`presenceCount` 在 [`findOrCreateParamNode` (reverse_router.go:767)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/router/reverse_router.go#L767) 里每次参数出现用 `atomic.AddInt64` 累加，[`GetPresenceCount` (request_param_node.go:150)](https://github.com/cyberspacesec/reverse-router-tree-skills/blob/main/pkg/node/request_param_node.go#L146) 用 `atomic.LoadInt64` 读取——线程安全。
 
 ## 例子
 
