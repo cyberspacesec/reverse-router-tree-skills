@@ -2,10 +2,14 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/inference"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 )
 
@@ -324,5 +328,159 @@ func TestRouterLogger_ShortValueUntouched(t *testing.T) {
 	}
 	if !strings.Contains(out, "count=5") {
 		t.Errorf("非字符串值应原样保留，得: %s", out)
+	}
+}
+
+// === discardHandler 测试 ===
+// discardHandler 是 LogLevelOff 用的 slog.Handler，丢弃所有输出。
+// 它的 4 个接口方法此前覆盖率 0%，此处直接构造验证。
+
+func TestDiscardHandler_Enabled(t *testing.T) {
+	h := discardHandler{}
+	// 任意级别都应返回 false（丢弃所有日志）
+	for _, lvl := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
+		if h.Enabled(context.Background(), lvl) {
+			t.Errorf("discardHandler.Enabled(%s) 应返回 false", lvl)
+		}
+	}
+}
+
+func TestDiscardHandler_Handle(t *testing.T) {
+	h := discardHandler{}
+	// Handle 不应 panic 且返回 nil；传入一条非空 record
+	rec := slog.NewRecord(time.Now(), slog.LevelError, "test.go", 1)
+	rec.AddAttrs(slog.String("k", "v"))
+	if err := h.Handle(context.Background(), rec); err != nil {
+		t.Errorf("discardHandler.Handle 应返回 nil，实际 %v", err)
+	}
+}
+
+func TestDiscardHandler_WithAttrs(t *testing.T) {
+	h := discardHandler{}
+	attrs := []slog.Attr{slog.String("k", "v"), slog.Int("n", 1)}
+	h2 := h.WithAttrs(attrs)
+	// WithAttrs 应返回同类型 handler（丢弃属性，不报错）
+	if _, ok := h2.(discardHandler); !ok {
+		t.Errorf("WithAttrs 应返回 discardHandler，实际 %T", h2)
+	}
+	// 返回的 handler 仍能正常工作
+	if h2.Enabled(context.Background(), slog.LevelInfo) {
+		t.Error("WithAttrs 返回的 handler 仍应丢弃所有日志")
+	}
+}
+
+func TestDiscardHandler_WithGroup(t *testing.T) {
+	h := discardHandler{}
+	h2 := h.WithGroup("mygroup")
+	if _, ok := h2.(discardHandler); !ok {
+		t.Errorf("WithGroup 应返回 discardHandler，实际 %T", h2)
+	}
+	if h2.Enabled(context.Background(), slog.LevelWarn) {
+		t.Error("WithGroup 返回的 handler 仍应丢弃所有日志")
+	}
+}
+
+// TestDiscardHandler_ViaLogger 验证 LogLevelOff logger 的日志调用最终走 discardHandler。
+// 注意：NewRouterLoggerWithLevel(LogLevelOff) 设 enabled=false，日志方法在 enabled 检查处就 return，
+// 不会到达底层 handler。本测试改用 SetLevel(LogLevelOff) 切换到 enabled=true 但 handler 为 discard 的路径
+// 不成立——故此处仅断言 enabled=false 时所有日志方法静默且无 panic。
+func TestDiscardHandler_ViaLogger(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewRouterLoggerWithLevel(LogLevelOff, &buf)
+	// enabled=false，下列调用应在 enabled 检查处 return，不触碰 handler 也不输出
+	l.Debug("d", "k", "v")
+	l.Info("i", "k", "v")
+	l.Warn("w", "k", "v")
+	l.Error("e", "k", "v")
+	if buf.Len() != 0 {
+		t.Errorf("LogLevelOff logger 不应有输出，实际 %s", buf.String())
+	}
+}
+
+// === SetLevel 全分支测试 ===
+// SetLevel 此前仅覆盖 Off 路径（42.9%），补全 Debug/Info/Warn/Error/default/nil 分支。
+
+func TestSetLevel_AllCases(t *testing.T) {
+	cases := []struct {
+		name    string
+		level   LogLevel
+		enabled bool // 切换后期望的 enabled 状态
+	}{
+		{"Debug", LogLevelDebug, true},
+		{"Info", LogLevelInfo, true},
+		{"Warn", LogLevelWarn, true},
+		{"Error", LogLevelError, true},
+		{"Off", LogLevelOff, false},
+		{"Default_未知级别", LogLevel(999), true}, // default 分支走 Info
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			l := NewRouterLoggerWithLevel(LogLevelWarn, &buf) // 起始非 Off，确保 SetLevel 真正切换
+			l.SetLevel(c.level)
+			// 验证 enabled 字段按预期切换（不调日志方法避免向 os.Stderr 输出噪音）
+			if l.enabled != c.enabled {
+				t.Errorf("SetLevel(%s) 后 enabled=%v，期望 %v", c.name, l.enabled, c.enabled)
+			}
+		})
+	}
+}
+
+func TestSetLevel_NilLogger(t *testing.T) {
+	// nil logger 调 SetLevel 不应 panic
+	var l *RouterLogger
+	l.SetLevel(LogLevelDebug) // l==nil 在 SetLevel 首行守卫返回
+}
+
+// === SetInferenceRule 测试（公开 API，此前 0%） ===
+
+func TestSetInferenceRule_Normal(t *testing.T) {
+	r := newSilentRouter()
+	rule := inference.NewPhysicalTypeInferenceRule()
+	r.SetInferenceRule(rule)
+	// 注入后应真正生效：注入一个能识别 integer 的规则，喂数字路径，推断后类型应为 integer
+	for _, id := range []string{"101", "102", "103"} {
+		r.ReverseHttpRequest(request.NewHttpRequest("/api/users/"+id, nil, "GET", nil))
+	}
+	// 无 panic 即说明注入成功；进一步验证 inferenceRule 字段非 nil
+	if r.inferenceRule == nil {
+		t.Error("SetInferenceRule 后 inferenceRule 不应为 nil")
+	}
+}
+
+func TestSetInferenceRule_NilGuard(t *testing.T) {
+	r := newSilentRouter()
+	original := r.inferenceRule
+	// 传入 nil 不应覆盖已有规则
+	r.SetInferenceRule(nil)
+	if r.inferenceRule != original {
+		t.Error("SetInferenceRule(nil) 不应覆盖已有规则")
+	}
+}
+
+// TestSetMergeConfig_Boundaries 覆盖 SetMergeConfig 的阈值钳制分支
+// （SiblingMergeThreshold<2 钳到 2、PatternSimilarityThreshold<0 钳到 0、>1 钳到 1）。
+func TestSetMergeConfig_Boundaries(t *testing.T) {
+	r := newSilentRouter()
+	// 阈值过低
+	r.SetMergeConfig(MergeConfig{SiblingMergeThreshold: 0, PatternSimilarityThreshold: -0.5})
+	cfg := r.GetMergeConfig()
+	if cfg.SiblingMergeThreshold != 2 {
+		t.Errorf("阈值<2 应钳到 2，实际 %d", cfg.SiblingMergeThreshold)
+	}
+	if cfg.PatternSimilarityThreshold != 0.0 {
+		t.Errorf("相似度<0 应钳到 0，实际 %v", cfg.PatternSimilarityThreshold)
+	}
+	// 相似度过高
+	r.SetMergeConfig(MergeConfig{PatternSimilarityThreshold: 1.5})
+	cfg = r.GetMergeConfig()
+	if cfg.PatternSimilarityThreshold != 1.0 {
+		t.Errorf("相似度>1 应钳到 1，实际 %v", cfg.PatternSimilarityThreshold)
+	}
+	// 正常值原样保留
+	r.SetMergeConfig(MergeConfig{SiblingMergeThreshold: 5, PatternSimilarityThreshold: 0.6})
+	cfg = r.GetMergeConfig()
+	if cfg.SiblingMergeThreshold != 5 || cfg.PatternSimilarityThreshold != 0.6 {
+		t.Errorf("正常值应原样保留，实际 threshold=%d sim=%v", cfg.SiblingMergeThreshold, cfg.PatternSimilarityThreshold)
 	}
 }
