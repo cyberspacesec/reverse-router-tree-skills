@@ -150,6 +150,52 @@ func TestTree_String_DefaultBranch(t *testing.T) {
 	}
 }
 
+// TestFormatNodeDisplay_TypeAssertionFallbacks 覆盖 formatNodeDisplay 各 case 的类型断言失败回退分支。
+// 当传入的节点 n 与 case 期望的具体类型不匹配时，应回退到 "key [X]" 简化格式。
+// 这些分支通过 Tree.String 难以触发（树内节点类型总是匹配），故直接调用私有函数。
+func TestFormatNodeDisplay_TypeAssertionFallbacks(t *testing.T) {
+	// 用 BaseNode 冒充各类具体节点类型，触发每个 case 的 ok=false 回退
+	base := node.NewBaseNode[node.NodeContext]("fake", "k", "", node.NewBaseNodeContext())
+
+	cases := []struct {
+		nodeType string
+		want     string
+	}{
+		{"request_path_variable", "{k} [Var]"},   // 非具体变量节点 → 无类型标注
+		{"request_param", "k [Param]"},            // 非具体参数节点 → 无必需/类型标注
+		{"request_header", "k [Header]"},          // 非具体 header 节点
+		{"request_header_value", "k [HeaderValue]"},
+		{"request_cookie", "k [Cookie]"},
+		{"request_cookie_value", "k [CookieValue]"},
+	}
+	for _, c := range cases {
+		t.Run(c.nodeType, func(t *testing.T) {
+			got := formatNodeDisplay(c.nodeType, "k", base)
+			if got != c.want {
+				t.Errorf("formatNodeDisplay(%q,..) 类型断言失败回退应为 %q，实际 %q", c.nodeType, c.want, got)
+			}
+		})
+	}
+
+	// default 分支：key 为空 → "[type]"
+	if got := formatNodeDisplay("custom_type", "", base); got != "[custom_type]" {
+		t.Errorf("default 分支（key 空）应为 '[custom_type]'，实际 %q", got)
+	}
+}
+
+// TestFormatNodeDisplay_ParamLogicalTypeNotEmpty 覆盖参数节点逻辑类型非空且非 string 分支
+// 已有 AllNodeTypes 测试覆盖了 string 和 integer，此处补一个逻辑类型为 string 时跳过类型标注的边界
+// （逻辑类型 == "string" 走 "%s [Param]" 分支，与空逻辑类型合并）。
+func TestFormatNodeDisplay_ParamExplicitStringType(t *testing.T) {
+	p := node.NewRequestParamNode("name", "", false)
+	// 显式设置逻辑类型为 string，应走简化分支（不带 [Param, string]）
+	p.SetLogicalType(value.LogicalTypeString)
+	got := formatNodeDisplay("request_param", "name", p)
+	if got != "name [Param]" {
+		t.Errorf("逻辑类型为 string 时应简化为 'name [Param]'，实际 %q", got)
+	}
+}
+
 // addPathChain 沿 segments 创建路径节点链，返回末端节点。
 // tree.AddNode 会自动创建中间路径节点，但此辅助函数使语义更显式。
 func addPathChain(tree *Tree, segments ...string) (node.Node[node.NodeContext], error) {

@@ -451,3 +451,150 @@ func TestTree_StatsWithHeaderCookie(t *testing.T) {
 
 	t.Logf("完整统计: %+v", stats)
 }
+
+// TestNormalizePath_ViaAddNode 覆盖 normalizePath 的 "//" 压缩循环与首尾斜杠裁剪分支。
+// 通过 AddNode 间接调用，路径含多重斜杠应被归一为单段。
+func TestNormalizePath_ViaAddNode(t *testing.T) {
+	tree := NewTree()
+	// 路径含首尾斜杠 + 连续斜杠，应归一为 "api/users"
+	err := tree.AddNode("//api//users//", node.NewRequestMethodNode("GET"))
+	if err != nil {
+		t.Fatalf("AddNode 归一化路径失败: %v", err)
+	}
+	apiNode := tree.Root.FindChildByKey("api")
+	if apiNode == nil {
+		t.Fatal("归一化后应找到 api 节点")
+	}
+	usersNode := apiNode.FindChildByKey("users")
+	if usersNode == nil {
+		t.Fatal("归一化后应找到 users 节点")
+	}
+	// 不应出现空 key 的中间节点（连续斜杠压缩的副作用）
+	for _, child := range tree.Root.GetChildren() {
+		if child.GetKey() == "" {
+			t.Error("归一化后不应存在空 key 节点")
+		}
+	}
+}
+
+// TestTree_FromJSON_InvalidJSON 覆盖 FromJSON 的 json.Unmarshal 失败分支（80%→更高）。
+func TestTree_FromJSON_InvalidJSON(t *testing.T) {
+	tree := NewTree()
+	err := tree.FromJSON([]byte(`{invalid json`))
+	if err == nil {
+		t.Fatal("非法 JSON 应返回错误")
+	}
+	if !strings.Contains(err.Error(), "JSON反序列化失败") {
+		t.Errorf("错误信息应含 'JSON反序列化失败'，实际: %v", err)
+	}
+}
+
+// TestTree_JSONRoundTrip_AllNodeTypes 覆盖 jsonToNode/nodeToJSON 的全部节点类型分支，
+// 特别是 request_header_value / request_cookie_value（用 Value 字段构造）与 default 分支。
+func TestTree_JSONRoundTrip_AllNodeTypes(t *testing.T) {
+	tree := NewTree()
+	tree.AddNode("api/data", node.NewRequestMethodNode("POST"))
+
+	postNode := tree.Root.FindChildByKey("api").FindChildByKey("data").FindChildByKey("POST")
+	// Content-Type 节点
+	postNode.AddChild(node.NewRequestContentTypeNode("application/json"))
+	// 参数节点带完整字段（multiValue + presenceCount + defaultValue 走各分支）
+	p := node.NewRequestParamNode("tags", "default", true)
+	p.SetValueType(value.Type(value.PhysicalTypeInteger))
+	p.SetLogicalType(value.LogicalTypeInteger)
+	p.SetMultiValue(true)
+	p.SetPresenceCount(5)
+	postNode.AddChild(p)
+	// Header + 值
+	h := node.NewRequestHeaderNode("X-Trace-Id")
+	h.AddChild(node.NewRequestHeaderValueNode("X-Trace-Id", "abc-123"))
+	postNode.AddChild(h)
+	// Cookie + 值
+	c := node.NewRequestCookieNode("session")
+	c.AddChild(node.NewRequestCookieValueNode("session", "xyz-789"))
+	postNode.AddChild(c)
+
+	jsonData, err := tree.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON 失败: %v", err)
+	}
+
+	tree2 := NewTree()
+	if err := tree2.FromJSON(jsonData); err != nil {
+		t.Fatalf("FromJSON 失败: %v", err)
+	}
+
+	post2 := tree2.Root.FindChildByKey("api").FindChildByKey("data").FindChildByKey("POST")
+	if post2 == nil {
+		t.Fatal("往返后应找到 POST 节点")
+	}
+	// Content-Type
+	if ct := post2.FindChildByKey("application/json"); ct == nil || ct.GetType() != "request_content_type" {
+		t.Error("往返后 Content-Type 节点缺失或类型错误")
+	}
+	// 参数 multiValue/presenceCount 往返
+	if p2, ok := post2.FindChildByKey("tags").(*node.RequestParamNode); ok {
+		if !p2.IsMultiValue() {
+			t.Error("往返后 multiValue 应保留 true")
+		}
+		if p2.GetPresenceCount() != 5 {
+			t.Errorf("往返后 presenceCount 应为 5，实际 %d", p2.GetPresenceCount())
+		}
+		if p2.GetDefaultValue() != "default" {
+			t.Errorf("往返后 defaultValue 应为 'default'，实际 %q", p2.GetDefaultValue())
+		}
+	} else {
+		t.Error("往返后 tags 参数节点应可断言为 RequestParamNode")
+	}
+	// Header 值节点（走 request_header_value 的 jn.Value/jn.Key 构造分支）
+	h2 := post2.GetChildByType("request_header")
+	if h2 == nil {
+		t.Fatal("往返后应找到 header 节点")
+	}
+	hv2 := h2.GetChildByType("request_header_value")
+	if hv2 == nil {
+		t.Fatal("往返后应找到 header 值节点")
+	}
+	// Cookie 值节点
+	c2 := post2.GetChildByType("request_cookie")
+	if c2 == nil {
+		t.Fatal("往返后应找到 cookie 节点")
+	}
+	cv2 := c2.GetChildByType("request_cookie_value")
+	if cv2 == nil {
+		t.Fatal("往返后应找到 cookie 值节点")
+	}
+}
+
+// TestTree_JSONRoundTrip_DefaultType 覆盖 jsonToNode 的 default 分支：
+// 未知节点类型经 JSON 往返后应重建为 BaseNode，保留 type/key。
+func TestTree_JSONRoundTrip_DefaultType(t *testing.T) {
+	// 直接构造 JSON 含未知类型节点，覆盖 jsonToNode 的 default 分支
+	raw := []byte(`{
+		"type": "root",
+		"key": "root",
+		"children": [{
+			"type": "custom_unknown",
+			"key": "mystery",
+			"value": "v1",
+			"children": [{"type": "request_path", "key": "leaf"}]
+		}]
+	}`)
+	tree2 := NewTree()
+	if err := tree2.FromJSON(raw); err != nil {
+		t.Fatalf("FromJSON 失败: %v", err)
+	}
+	unknown := tree2.Root.FindChildByKey("mystery")
+	if unknown == nil {
+		t.Fatal("default 分支应重建 mystery 节点")
+	}
+	if unknown.GetType() != "custom_unknown" {
+		t.Errorf("default 分支应保留 type 'custom_unknown'，实际 %q", unknown.GetType())
+	}
+	if unknown.GetValue() != "v1" {
+		t.Errorf("default 分支应保留 value 'v1'，实际 %q", unknown.GetValue())
+	}
+	if unknown.FindChildByKey("leaf") == nil {
+		t.Error("default 节点的子节点应被递归重建")
+	}
+}
