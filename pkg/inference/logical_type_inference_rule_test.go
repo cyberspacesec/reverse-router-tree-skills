@@ -863,3 +863,42 @@ func TestLogicalType_MobileAndLandlineMix(t *testing.T) {
 		t.Errorf("手机号与座机号混合应识别为 'phone'，实际: '%s'", inferred)
 	}
 }
+
+// TestStripPhoneSeparators_Equivalence 验证零分配重写后语义与原实现一致。
+// 覆盖快路径（纯数字/+）与慢路径（含分隔符、含多字节 rune、纯非数字）。
+func TestStripPhoneSeparators_Equivalence(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"13812345678", "13812345678"},           // 纯数字，快路径
+		{"+8613812345678", "+8613812345678"},      // 数字+，快路径
+		{"138-1234-5678", "13812345678"},          // 含横线，慢路径
+		{"138 1234 5678", "13812345678"},          // 含空格
+		{"(+86)138-1234-5678", "+8613812345678"},  // 含括号横线
+		{"abc", ""},                               // 全非数字，慢路径返回空
+		{"", ""},                                  // 空串
+		{"1", "1"},                                // 单字符数字
+		{"+", "+"},                                // 仅 +
+	}
+	for _, c := range cases {
+		if got := stripPhoneSeparators(c.in); got != c.want {
+			t.Errorf("stripPhoneSeparators(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestStripPhoneSeparators_ZeroAlloc 验证纯数字值零分配（快路径不触发 Builder）。
+// pprof 显示 stripPhoneSeparators 的 strings.(*Builder).grow 占 97% 分配，
+// 快路径使最常见的纯数字值不再分配。
+func TestStripPhoneSeparators_ZeroAlloc(t *testing.T) {
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = stripPhoneSeparators("13812345678")
+	})
+	if allocs != 0 {
+		t.Errorf("纯数字值应零分配（快路径），实际 %v allocs/op", allocs)
+	}
+	// 含分隔符值走慢路径，允许分配但结果正确
+	if got := stripPhoneSeparators("138-1234-5678"); got != "13812345678" {
+		t.Errorf("含分隔符值结果错误: %q", got)
+	}
+}

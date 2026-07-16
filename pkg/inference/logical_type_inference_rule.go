@@ -268,15 +268,29 @@ func isIPAddress(val string) bool {
 // stripPhoneSeparators 去除手机号中常见的分隔符
 // 保留数字和 + 号（国际前缀），去除空格、横线、括号、点等
 func stripPhoneSeparators(val string) string {
-	var b strings.Builder
-	b.Grow(len(val))
-	for _, c := range val {
-		if c >= '0' && c <= '9' || c == '+' {
-			b.WriteRune(c)
+	// 快路径：逐字节扫描，若值只含 ASCII 数字和 +（无任何分隔符），
+	// 直接返回原串，零分配。手机号场景的值绝大多数为纯数字，走快路径。
+	// 用字节循环而非 rune 循环：数字/+ 是 ASCII 单字节，避免 rune 解码开销。
+	for i := 0; i < len(val); i++ {
+		c := val[i]
+		if (c >= '0' && c <= '9') || c == '+' {
+			continue
 		}
-		// 其他字符（空格、横线、括号、点等）全部丢弃
+		// 遇到非数字非 + 字节（分隔符或多字节 rune 首字节）→ 走慢路径
+		var b strings.Builder
+		b.Grow(len(val))
+		// 先把已确认是数字/+ 的前缀写入
+		b.WriteString(val[:i])
+		// 从当前位置继续按 rune 过滤（多字节 rune 场景用 rune 更安全）
+		for _, c := range val[i:] {
+			if c >= '0' && c <= '9' || c == '+' {
+				b.WriteRune(c)
+			}
+		}
+		return b.String()
 	}
-	return b.String()
+	// 全程无分隔符，直接返回原串
+	return val
 }
 
 // matchNumericPatterns 匹配数值扩展类型（货币、百分比、精确小数）
