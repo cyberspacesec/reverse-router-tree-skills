@@ -210,10 +210,15 @@ func (g *Generator) genBody(repeat int) *BodySpec {
 		ct = "application/x-www-form-urlencoded"
 	}
 	n := 1 + g.rng.Intn(3) // 1-3 个字段
+	// 字段名必须唯一：router 解析 body 时同名字段会被合并为单个参数节点，
+	// 若 spec 声明 N 个字段但其中重名，router 实际只建 N-k 个参数节点，
+	// 导致 StatsAssertion.MinParams（按 len(Fields) 计）与实际不符。
+	// 故从池中无放回抽取，保证每个字段名唯一。
+	names := pickUniqueBodyFieldNames(g.rng, n)
 	b := &BodySpec{ContentType: ct}
 	for i := 0; i < n; i++ {
 		field := &BodyFieldSpec{
-			Name:   pickBodyFieldName(g.rng),
+			Name:   names[i],
 			Values: []string{fmt.Sprintf("val%d", g.rng.Intn(1000))},
 		}
 		deriveBodyFieldExpectations(field, repeat)
@@ -275,6 +280,20 @@ func pickQueryParamName(rnd *rand.Rand) string {
 
 func pickBodyFieldName(rnd *rand.Rand) string {
 	return bodyFieldNames[rnd.Intn(len(bodyFieldNames))]
+}
+
+// pickUniqueBodyFieldNames 从 bodyFieldNames 池中无放回抽取 n 个互不重复的字段名。
+// 用 Fisher-Yates 部分洗牌：打乱池副本后取前 n 个。n 上限为池长度，超出则取全部。
+func pickUniqueBodyFieldNames(rnd *rand.Rand, n int) []string {
+	pool := make([]string, len(bodyFieldNames))
+	copy(pool, bodyFieldNames)
+	rnd.Shuffle(len(pool), func(i, j int) {
+		pool[i], pool[j] = pool[j], pool[i]
+	})
+	if n > len(pool) {
+		n = len(pool)
+	}
+	return pool[:n]
 }
 
 // genValuesForPattern 按模式生成 n 个值。
