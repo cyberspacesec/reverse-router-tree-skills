@@ -278,10 +278,6 @@ func pickQueryParamName(rnd *rand.Rand) string {
 	return queryParamNames[rnd.Intn(len(queryParamNames))]
 }
 
-func pickBodyFieldName(rnd *rand.Rand) string {
-	return bodyFieldNames[rnd.Intn(len(bodyFieldNames))]
-}
-
 // pickUniqueBodyFieldNames 从 bodyFieldNames 池中无放回抽取 n 个互不重复的字段名。
 // 用 Fisher-Yates 部分洗牌：打乱池副本后取前 n 个。n 上限为池长度，超出则取全部。
 func pickUniqueBodyFieldNames(rnd *rand.Rand, n int) []string {
