@@ -8,15 +8,41 @@
 
 ## 测试覆盖率
 
-| 包 | 覆盖率 |
+**全量口径（`-coverpkg=./...`）总覆盖率 90.6%**，`go test -race ./...` 全绿，staticcheck 全仓库清零。
+
+| 包 | 单包覆盖率 |
 |------|--------|
-| **pkg/exporter** | 78.4% |
-| **pkg/inference** | 84.8% |
-| **pkg/node** | 84.2% |
-| **pkg/request** | 92.2% |
-| **pkg/router** | 76.5% |
-| **pkg/tree** | 82.0% |
+| **pkg/exporter** | 97.2% |
+| **pkg/inference** | 87.1% |
+| **pkg/node** | 92.6% |
+| **pkg/request** | 92.2%（含新增 curl_parser.go） |
+| **pkg/router** | 85.6% |
+| **pkg/tree** | 94.7% |
 | **pkg/value** | 100.0% |
+
+## 吞吐量基线（2026-07-17）
+
+环境：AMD Ryzen 9 5950X 32 核，Go 1.23.2。
+
+| 场景 | 优化前 | 优化后 | 单核吞吐 |
+|------|--------|--------|----------|
+| Merge（1000 ID 合并） | 630μs/op, 1634 allocs | **1.5μs/op, 15 allocs** | ~65万 URL/s |
+| 纯路径命中（真实流量，ID 有重复） | — | 1.27μs/op, 14 allocs | **~78万 URL/s** |
+| POST + JSON body | — | 3.55μs/op, 39 allocs | ~28万 URL/s |
+| curl 解析 | 不支持 | 1.92μs/op, 30 allocs | ~52万 curl/s |
+| curl 解析 + 路由还原（全链路） | 不支持 | 3.31μs/op, 30 allocs | ~30万 curl/s |
+| 32 核并发 Merge | 受 mergeMu 串行点限制 | 146μs/op（总） | 并行受限（已知约束） |
+
+**瓶颈根因**：类型推断 O(N²) 全量重算（每次命中变量节点对全部累积值做 14 正则匹配）+ `stripPhoneSeparators` 的 `strings.Builder` 逐字符分配（pprof 占 97% 分配）。
+
+**优化手段**：
+1. `stripPhoneSeparators` 零分配快路径——纯数字值直接返回原串，仅含分隔符值走 Builder（消除 97% 分配）
+2. 类型推断增量缓存——`lastInferredUniqueCount` 字段（typeMu 保护），仅当 unique 值数变化才重算推断，消除 O(N²)
+3. 新增 curl 命令解析器——网络空间测绘场景核心输入格式（手写 shell-token 切分，支持引号/续行/转义/多 header/-d/-X）
+
+**产品目标达成**："每秒处理几十万条 URL/cURL" —— 单核纯路径 ~78万/s，远超目标；真实流量 ID 有重复走此路径。curl 解析本身无瓶颈（~52万/s）。
+
+**已知约束**：并发合并受 `mergeMu` 串行临界区限制（`checkAndMergeSiblings` 多步非原子，需串行化避免中间态竞争）。合并低频（每 N 请求触发），router 级串行化吞吐代价可接受。彻底消除需大改 BaseNode 加锁回调，收益低未做。
 
 ## 模块完成度总览
 
@@ -83,6 +109,12 @@
   - 大小写不敏感的 Get/Set/Has
   - 便捷方法：GetAccept/GetAuthorization/GetAuthScheme/GetXRequestedWith/GetXForwardedFor/GetXApiVersion/GetAcceptLanguage/IsAjax
   - ToHttpHeader() 转换为标准 http.Header
+- **CurlParser**（新增 2026-07-17）：`ParseCurl(curl string)` 将一条 curl 命令解析为 HttpRequest
+  - 手写 shell-token 切分（零外部依赖），处理单/双引号、反斜杠转义、反斜杠续行
+  - 支持 `-X`/`--request`、`-H`/`--header`（多个）、`-d`/`--data`/`--data-raw`/`--data-binary`/`--data-ascii`
+  - 有 `-d` 无显式 `-X` 默认 POST，无 Content-Type 时默认 `application/x-www-form-urlencoded`
+  - 无害 flag 跳过（`--compressed`/`-s`/`-k`/`-L`/`--insecure`/`--silent` 等）；`-XPOST` 紧凑形式
+  - 网络空间测绘场景核心输入格式（抓包常以 curl 形态留存）
 - **Cookies**：Cookie集合
   - ParseCookies() 解析 Cookie header 字符串
   - Get/Has/GetAll/String 方法
