@@ -21,12 +21,18 @@ type RequestPathVariableNode struct {
 	valueType value.Type
 	// 推断出的逻辑类型（在物理类型之上的语义类型）
 	logicalType value.LogicalType
-	// typeMu 保护 valueType/logicalType 的并发读写。
+	// typeMu 保护 valueType/logicalType/lastInferredUniqueCount 的并发读写。
 	// 多个 goroutine 命中同一已存在变量节点时，findOrCreatePathNode 会并发
 	// ObserveValue + InferPhysicalAndLogical 回填类型，需同步保护。
 	typeMu sync.RWMutex
 	// 可选的正则模式，用于匹配路径变量值（构造后只读，无需锁）
 	pattern *regexp.Regexp
+	// lastInferredUniqueCount 上次类型推断时的 unique 值数。
+	// findOrCreatePathNode 用它判断是否需要重新推断：仅当 unique 值数自上次
+	// 推断后变化时才重算，避免每个请求都对全部累积值做 O(N) 全量推断
+	// （合并后的变量节点可能累积上千个值，消除 O(N²)）。用 typeMu 保护。
+	// 初值 0 表示"从未推断"，首个值（uniqueCount=1）即触发首次推断。
+	lastInferredUniqueCount int
 }
 
 // NewRequestPathVariableNode 创建一个新的路径变量节点
@@ -182,6 +188,22 @@ func (n *RequestPathVariableNode) GetPositionIdentifier() string {
 //   - *value.ValueMetric: 值统计信息
 func (n *RequestPathVariableNode) GetValueMetric() *value.ValueMetric {
 	return n.valueMetric
+}
+
+// GetLastInferredUniqueCount 返回上次类型推断时的 unique 值数（typeMu 读锁）。
+// 增量推断缓存：调用方比较它与当前 uniqueCount，仅在变化时才重算推断。
+func (n *RequestPathVariableNode) GetLastInferredUniqueCount() int {
+	n.typeMu.RLock()
+	defer n.typeMu.RUnlock()
+	return n.lastInferredUniqueCount
+}
+
+// SetLastInferredUniqueCount 设置上次类型推断时的 unique 值数（typeMu 写锁）。
+// 推断完成后调用，记录本次推断对应的 uniqueCount，供下次命中判断是否需重算。
+func (n *RequestPathVariableNode) SetLastInferredUniqueCount(c int) {
+	n.typeMu.Lock()
+	defer n.typeMu.Unlock()
+	n.lastInferredUniqueCount = c
 }
 
 // GetPattern 获取正则模式

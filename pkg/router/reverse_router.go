@@ -295,15 +295,21 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 		pathVarNode := pathVarChild.(*node.RequestPathVariableNode)
 		if pathVarNode.IsMatch(pathSegment) {
 			pathVarNode.ObserveValue(pathSegment)
-			// 观察到新值后重新推断物理+逻辑类型（与 findOrCreateParamNode 对齐）。
+			// 增量推断：仅当 unique 值数自上次推断后变化时才重算。
+			// 合并后的变量节点可能累积上千个值，每次命中都全量推断是 O(N²)；
+			// 绝大多数命中是重复值（uniqueCount 不变），跳过重算。
 			// 必须用 InferPhysicalAndLogical 分别回填，不能用单一 Infer——
 			// 后者会把逻辑类型串（如 "uuid"）覆盖到物理类型字段。
 			if x.chainRule != nil {
-				physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(pathVarNode)
-				x.stats.TypeInferences.Add(1)
-				if err == nil {
-					pathVarNode.SetType(value.Type(physicalType))
-					pathVarNode.SetLogicalType(logicalType)
+				uniqueCount := pathVarNode.GetValueMetric().GetUniqueValueCount()
+				if uniqueCount != pathVarNode.GetLastInferredUniqueCount() {
+					physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(pathVarNode)
+					x.stats.TypeInferences.Add(1)
+					if err == nil {
+						pathVarNode.SetType(value.Type(physicalType))
+						pathVarNode.SetLogicalType(logicalType)
+					}
+					pathVarNode.SetLastInferredUniqueCount(uniqueCount)
 				}
 			}
 			return pathVarChild, nil
@@ -594,7 +600,9 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 		parent.RemoveChild(child)
 	}
 
-	// 如果有链式推断规则，在所有值观察完之后推断物理类型和逻辑类型
+	// 如果有链式推断规则，在所有值观察完之后推断物理类型和逻辑类型。
+	// 合并产生的新变量节点首次推断后，记录 uniqueCount 缓存，使后续
+	// findOrCreatePathNode 命中走增量逻辑（仅 uniqueCount 变化才重算）。
 	if x.chainRule != nil {
 		physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(varNode)
 		x.stats.TypeInferences.Add(1)
@@ -602,6 +610,7 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 			varNode.SetType(value.Type(physicalType))
 			varNode.SetLogicalType(logicalType)
 		}
+		varNode.SetLastInferredUniqueCount(varNode.GetValueMetric().GetUniqueValueCount())
 	}
 
 	parent.AddChild(varNode)
@@ -787,13 +796,18 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 		}
 		paramNode.GetContext().SetKey(paramName, param.Value)
 
-		// 如果参数值不为空，尝试类型推断
+		// 增量推断：仅当 unique 值数自上次推断后变化时才重算。
+		// 参数值大量重复（如 page=1 反复出现），每次命中全量推断是 O(N²)。
 		if param.Value != "" && x.chainRule != nil {
-			physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(paramNode)
-			x.stats.TypeInferences.Add(1)
-			if err == nil {
-				paramNode.SetValueType(value.Type(physicalType))
-				paramNode.SetLogicalType(logicalType)
+			uniqueCount := paramNode.GetValueMetric().GetUniqueValueCount()
+			if uniqueCount != paramNode.GetLastInferredUniqueCount() {
+				physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(paramNode)
+				x.stats.TypeInferences.Add(1)
+				if err == nil {
+					paramNode.SetValueType(value.Type(physicalType))
+					paramNode.SetLogicalType(logicalType)
+				}
+				paramNode.SetLastInferredUniqueCount(uniqueCount)
 			}
 		}
 		return nil
@@ -803,7 +817,7 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 	// 新参数首次出现，presenceCount 设为 1
 	newParamNode.IncrementPresenceCount()
 
-	// 如果参数值不为空，尝试类型推断
+	// 如果参数值不为空，尝试类型推断（首次推断后记录 uniqueCount 缓存）
 	if param.Value != "" && x.chainRule != nil {
 		physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(newParamNode)
 		x.stats.TypeInferences.Add(1)
@@ -811,6 +825,7 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 			newParamNode.SetValueType(value.Type(physicalType))
 			newParamNode.SetLogicalType(logicalType)
 		}
+		newParamNode.SetLastInferredUniqueCount(newParamNode.GetValueMetric().GetUniqueValueCount())
 	}
 
 	if err := methodNode.AddChild(newParamNode); err != nil {

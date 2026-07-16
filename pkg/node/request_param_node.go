@@ -25,10 +25,15 @@ type RequestParamNode struct {
 	logicalType   value.LogicalType   // 推断的逻辑类型
 	multiValue    bool                // 是否为多值参数（同一参数名出现多次）
 	presenceCount int64               // 参数在请求中出现的次数（用于必需性推断，atomic）
-	// typeMu 保护 required/valueType/logicalType/multiValue 的并发读写。
+	// typeMu 保护 required/valueType/logicalType/multiValue/lastInferredUniqueCount 的并发读写。
 	// 多个 goroutine 命中同一已存在参数节点时，findOrCreateParamNode 会并发
 	// 推断并回填类型/必需性，需同步保护。presenceCount 已用 atomic，单独处理。
 	typeMu sync.RWMutex
+	// lastInferredUniqueCount 上次类型推断时的 unique 值数。
+	// findOrCreateParamNode 用它判断是否需要重新推断：仅当 unique 值数自上次
+	// 推断后变化时才重算，避免每次参数命中都对全部累积值做 O(N) 全量推断
+	// （消除 O(N²)）。用 typeMu 保护。初值 0 表示从未推断，首个值触发首次推断。
+	lastInferredUniqueCount int
 }
 
 // NewRequestParamNode 创建一个新的查询参数节点
@@ -212,6 +217,22 @@ func (n *RequestParamNode) ObserveValue(val string) {
 // GetValueMetric 获取值统计信息
 func (n *RequestParamNode) GetValueMetric() *value.ValueMetric {
 	return n.valueMetric
+}
+
+// GetLastInferredUniqueCount 返回上次类型推断时的 unique 值数（typeMu 读锁）。
+// 增量推断缓存：调用方比较它与当前 uniqueCount，仅在变化时才重算推断。
+func (n *RequestParamNode) GetLastInferredUniqueCount() int {
+	n.typeMu.RLock()
+	defer n.typeMu.RUnlock()
+	return n.lastInferredUniqueCount
+}
+
+// SetLastInferredUniqueCount 设置上次类型推断时的 unique 值数（typeMu 写锁）。
+// 推断完成后调用，记录本次推断对应的 uniqueCount，供下次命中判断是否需重算。
+func (n *RequestParamNode) SetLastInferredUniqueCount(c int) {
+	n.typeMu.Lock()
+	defer n.typeMu.Unlock()
+	n.lastInferredUniqueCount = c
 }
 
 // GetValueType 获取推断的值类型
