@@ -36,7 +36,8 @@ export default withMermaid(defineConfig({
             { text: '为什么重要', link: '/guide/why-important' },
             { text: '它能做什么', link: '/guide/capabilities' },
             { text: '快速上手', link: '/guide/quick-start' },
-            { text: '一个完整示例', link: '/guide/full-example' }
+            { text: '一个完整示例', link: '/guide/full-example' },
+            { text: '从抓包到路由树', link: '/guide/packet-to-tree' }
           ]
         }
       ],
