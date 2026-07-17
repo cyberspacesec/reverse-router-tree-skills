@@ -176,6 +176,8 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 		x.logger.Error("解析URL失败", "url", req.Url, "error", err)
 		return fmt.Errorf("解析URL失败: %w", err)
 	}
+	// paths 中每个 *HttpRequestPath 来自 sync.Pool，函数结束归还（Pool 化消除每段堆分配）
+	defer request.ReleasePaths(paths)
 
 	// 第2步：路径匹配/创建
 	currentNode := x.Tree.Root
@@ -926,6 +928,7 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 	if err != nil {
 		return true
 	}
+	defer request.ReleasePaths(paths)
 
 	method := strings.ToUpper(req.Method)
 	if method == "" {
@@ -1029,6 +1032,7 @@ func (x *ReverseRouter) FindRouteNode(req *request.HttpRequest) (methodNode, con
 	if err != nil {
 		return nil, nil, fmt.Errorf("解析URL失败: %w", err)
 	}
+	defer request.ReleasePaths(paths)
 
 	method := strings.ToUpper(req.Method)
 	if method == "" {

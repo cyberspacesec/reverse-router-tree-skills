@@ -68,6 +68,8 @@ func TestFastParse_VsOriginalParser(t *testing.T) {
 		// 原解析器
 		origParser := NewUrlParser(raw)
 		origPaths, origParams, err := origParser.Parse()
+		// origPaths/fastPaths 来自 Pool，本轮比较后立即归还（避免污染后续用例的池对象，
+		// 也避免 defer-in-loop 捕获循环变量的问题）
 		// fast 解析 + 切分 + 解码 + 过滤
 		pathStr, queryStr, _ := fastParseURLPathAndQuery(raw)
 		segs := make([]string, 0, 8)
@@ -87,14 +89,20 @@ func TestFastParse_VsOriginalParser(t *testing.T) {
 		}
 		// 两者要么都报错，要么都不报错
 		if (err != nil) != (fastErr != nil) {
+			ReleasePaths(origPaths)
+			ReleasePaths(fastPaths)
 			t.Errorf("error mismatch %q: orig_err=%v fast_err=%v", raw, err, fastErr)
 			continue
 		}
 		if err != nil {
+			ReleasePaths(origPaths)
+			ReleasePaths(fastPaths)
 			continue // 都报错，等价
 		}
 		// 比较路径段
 		if len(fastPaths) != len(origPaths) {
+			ReleasePaths(origPaths)
+			ReleasePaths(fastPaths)
 			t.Errorf("path count mismatch %q: fast=%d orig=%d", raw, len(fastPaths), len(origPaths))
 			continue
 		}
@@ -114,6 +122,8 @@ func TestFastParse_VsOriginalParser(t *testing.T) {
 		if fastParamCount != len(origParams) {
 			t.Errorf("param count mismatch %q: fast=%d orig=%d", raw, fastParamCount, len(origParams))
 		}
+		ReleasePaths(origPaths)
+		ReleasePaths(fastPaths)
 	}
 }
 

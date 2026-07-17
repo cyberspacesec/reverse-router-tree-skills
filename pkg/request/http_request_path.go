@@ -1,6 +1,9 @@
 package request
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // http请求路径
 type HttpRequestPath struct {
@@ -12,10 +15,55 @@ type HttpRequestPath struct {
 	isPathParam    bool
 }
 
-func NewHttpRequestPath(path string) *HttpRequestPath {
-	hp := &HttpRequestPath{Path: path}
+// httpRequestPathPool 复用 *HttpRequestPath，避免每个路径段一次堆分配。
+// Parse 从池取，调用方用 ReleasePaths 归还。
+var httpRequestPathPool = sync.Pool{
+	New: func() any {
+		return &HttpRequestPath{}
+	},
+}
+
+// AcquireHttpRequestPath 从池取出一个已重置的 HttpRequestPath 并设置 Path。
+func AcquireHttpRequestPath(path string) *HttpRequestPath {
+	hp := httpRequestPathPool.Get().(*HttpRequestPath)
+	hp.Path = path
+	hp.pathParamKey = ""
+	hp.pathParamValue = ""
+	hp.isPathParam = false
 	hp.detectPathParam()
 	return hp
+}
+
+// ReleasePath 归还单个 HttpRequestPath 到池。归还后禁止再使用该指针。
+func ReleasePath(hp *HttpRequestPath) {
+	if hp == nil {
+		return
+	}
+	hp.Path = ""
+	hp.pathParamKey = ""
+	hp.pathParamValue = ""
+	hp.isPathParam = false
+	httpRequestPathPool.Put(hp)
+}
+
+// ReleasePaths 批量归还 paths slice 中的所有 *HttpRequestPath。
+// 归还后 paths slice 不再可用，调用方不应再访问其中的元素。
+func ReleasePaths(paths []*HttpRequestPath) {
+	for i := range paths {
+		hp := paths[i]
+		hp.Path = ""
+		hp.pathParamKey = ""
+		hp.pathParamValue = ""
+		hp.isPathParam = false
+		httpRequestPathPool.Put(hp)
+	}
+}
+
+// NewHttpRequestPath 创建并初始化一个 HttpRequestPath。
+// 注意：返回的对象来自 sync.Pool，用完必须调用 ReleasePath 归还，否则池无效。
+// 若需脱离池管理的独立对象，请显式构造 &HttpRequestPath{...}。
+func NewHttpRequestPath(path string) *HttpRequestPath {
+	return AcquireHttpRequestPath(path)
 }
 
 // detectPathParam 检测路径段是否为 key=value 格式的路径参数
