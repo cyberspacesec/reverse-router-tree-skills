@@ -324,14 +324,46 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 		}
 	}
 
-	// 没有找到匹配的节点，创建新的路径节点
+	// 没有找到匹配的节点，创建新的路径节点。
+	// 并发安全：多个 goroutine 可能同时通过上面的查找（无锁乐观读），都判定 child==nil
+	// 后进入创建分支。用 mergeMu 串行化 create+AddChild+merge 临界区，并在锁内 double-check
+	// （其他 goroutine 可能已抢先创建了同 key 节点），避免重复 AddChild 导致 children slice
+	// 出现重复 key 节点 + 合并逻辑误判。命中已存在节点（前两个分支）不进此锁，吞吐不受影响。
+	x.mergeMu.Lock()
+	defer x.mergeMu.Unlock()
+
+	// 锁内 double-check：精确匹配可能已被并发创建
+	if child := parent.FindChildByKey(pathSegment); child != nil && child.GetType() == "request_path" {
+		return child, nil
+	}
+	// 锁内 double-check：路径变量节点可能已被并发创建
+	if pathVarChild := parent.GetChildByType("request_path_variable"); pathVarChild != nil {
+		pathVarNode := pathVarChild.(*node.RequestPathVariableNode)
+		if pathVarNode.IsMatch(pathSegment) {
+			pathVarNode.ObserveValue(pathSegment)
+			if x.chainRule != nil {
+				uniqueCount := pathVarNode.GetValueMetric().GetUniqueValueCount()
+				if uniqueCount != pathVarNode.GetLastInferredUniqueCount() {
+					physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(pathVarNode)
+					x.stats.TypeInferences.Add(1)
+					if err == nil {
+						pathVarNode.SetType(value.Type(physicalType))
+						pathVarNode.SetLogicalType(logicalType)
+					}
+					pathVarNode.SetLastInferredUniqueCount(uniqueCount)
+				}
+			}
+			return pathVarChild, nil
+		}
+	}
+
 	newPathNode := node.NewRequestPathNode(pathSegment)
 	if err := parent.AddChild(newPathNode); err != nil {
 		return nil, fmt.Errorf("添加路径节点失败: %w", err)
 	}
 
-	// 检查是否需要合并兄弟节点为路径变量
-	x.checkAndMergeSiblings(parent)
+	// 检查是否需要合并兄弟节点为路径变量（已在 mergeMu 临界区内）
+	x.checkAndMergeSiblingsLocked(parent)
 
 	return newPathNode, nil
 }
@@ -342,6 +374,13 @@ func (x *ReverseRouter) checkAndMergeSiblings(parent node.Node[node.NodeContext]
 	// 见 ReverseRouter.mergeMu 注释。
 	x.mergeMu.Lock()
 	defer x.mergeMu.Unlock()
+	x.checkAndMergeSiblingsLocked(parent)
+}
+
+// checkAndMergeSiblingsLocked 是 checkAndMergeSiblings 的无锁版本，
+// 供调用方在已持有 mergeMu 时直接调用，避免重入死锁。
+// 调用方必须确保已持 mergeMu。
+func (x *ReverseRouter) checkAndMergeSiblingsLocked(parent node.Node[node.NodeContext]) {
 
 	pathChildren := make([]node.Node[node.NodeContext], 0)
 	for _, child := range parent.GetChildren() {
