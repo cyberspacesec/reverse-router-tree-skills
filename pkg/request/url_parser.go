@@ -14,41 +14,47 @@ func NewUrlParser(url string) *UrlParser {
 }
 
 func (x *UrlParser) Parse() ([]*HttpRequestPath, []*HttpParam, error) {
-	u, err := url.Parse(x.Url)
+	// 用轻量 fast 解析提取 path + query，避开 net/url.Parse 的全功能开销
+	// （net/url.Parse 占 CPU 约 40%，详见吞吐量基线）。
+	// 行为与原实现（u.Path + u.Query()）等价，见 TestFastParse_VsOriginalParser。
+	pathStr, queryStr, err := fastParseURLPathAndQuery(x.Url)
 	if err != nil {
 		return nil, nil, err
 	}
-	// 解析URL路径，按照路径分隔符分割成有序的HttpRequestPath数组
-	var paths []*HttpRequestPath
-	if u.Path != "" {
-		// 统一化路径，处理连续多个分隔符的情况
-		normalizedPath := strings.Trim(u.Path, "/")
-		// 处理连续的多个分隔符
-		for strings.Contains(normalizedPath, "//") {
-			normalizedPath = strings.ReplaceAll(normalizedPath, "//", "/")
-		}
 
-		// 分割路径并创建HttpRequestPath对象
-		segments := strings.Split(normalizedPath, "/")
-		for _, segment := range segments {
-			if segment != "" {
-				// 路径段规范化
-				segment = normalizePathSegment(segment)
-				if segment != "" {
-					paths = append(paths, NewHttpRequestPath(segment))
-				}
+	// 解析路径段（复用栈上 slice，小路径零额外分配）
+	var paths []*HttpRequestPath
+	if pathStr != "" {
+		segments := make([]string, 0, 8)
+		segments = fastSplitPathSegments(pathStr, segments)
+		for _, seg := range segments {
+			// %xx 解码（对齐 net/url 的 PathUnescape，非法 %xx 返回 error 透传）
+			decoded, err := fastDecodeSegment(seg)
+			if err != nil {
+				return nil, nil, err
 			}
+			// 过滤 . 和 .. 段（路径遍历安全）
+			if decoded == "" || decoded == "." || decoded == ".." {
+				continue
+			}
+			paths = append(paths, NewHttpRequestPath(decoded))
 		}
 	}
 
-	// 解析URL查询参数
+	// 解析查询参数（query 解析仍用标准库 ParseQuery，格式复杂非主热点）
 	var params []*HttpParam
-	for key, values := range u.Query() {
-		// 参数名统一小写（HTTP参数名不区分大小写是常见约定）
-		normalizedKey := strings.ToLower(key)
-		for _, value := range values {
-			// URL解码已在 url.Query() 中自动完成
-			params = append(params, NewHttpParam(normalizedKey, value))
+	if queryStr != "" {
+		values, err := url.ParseQuery(queryStr)
+		if err != nil {
+			return nil, nil, err
+		}
+		for key, vals := range values {
+			// 参数名统一小写（HTTP参数名不区分大小写是常见约定）
+			normalizedKey := strings.ToLower(key)
+			for _, v := range vals {
+				// URL解码已在 url.ParseQuery 中完成
+				params = append(params, NewHttpParam(normalizedKey, v))
+			}
 		}
 	}
 	return paths, params, nil
