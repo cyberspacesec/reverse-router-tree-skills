@@ -179,7 +179,8 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 
 	// 第2步：路径匹配/创建
 	currentNode := x.Tree.Root
-	var pathParams []*request.HttpParam // 路径中嵌入的参数（key=value格式）
+	// 预分配 path 参数容量（路径中 key=value 段数 ≤ len(paths)），避免 append 扩容
+	pathParams := make([]*request.HttpParam, 0, len(paths))
 	for _, pathSegment := range paths {
 		// 检查路径段是否为 key=value 格式的路径参数
 		if pathSegment.IsPathParam() {
@@ -215,7 +216,12 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 	}
 
 	// 第5步：创建查询参数节点（包括路径中嵌入的参数和请求体参数）
-	allParams := append(pathParams, params...)
+	// 预分配总容量 = path 参数 + query 参数（body 参数后续 append），
+	// 避免逐次 append 扩容。注意用新 slice 而非 append(pathParams,...)，
+	// 以免复用 pathParams 底层数组造成别名问题。
+	allParams := make([]*request.HttpParam, len(pathParams)+len(params))
+	copy(allParams, pathParams)
+	copy(allParams[len(pathParams):], params)
 
 	// 解析请求体参数（表单/JSON/multipart），按 Content-Type 分发
 	contentType := req.Headers.GetContentType()
