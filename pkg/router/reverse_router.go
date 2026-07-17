@@ -1255,15 +1255,47 @@ func isInteger(s string) bool {
 	return true
 }
 
+// routingHeaderEntry 路由 header 条目（有序，优先级从前到后）。
+type routingHeaderEntry struct {
+	name      string
+	normalize func(string) string
+}
+
+// routingHeaderList 路由 header 有序列表。
+// processRoutingHeaders 单次遍历请求 headers 时，对每个 header 名按此列表
+// 大小写不敏感匹配，命中则规范化处理。替代原 map 遍历的 5×O(n) Get
+// （原实现对每个 header 调 headers.Get，每次 Get 遍历全部 headers + EqualFold，
+// 5 个 header 共 25 次比较；现单次遍历 headers，每个 header 名最多 5 次比较）。
+var routingHeaderList = []routingHeaderEntry{
+	{"Accept", normalizeAccept},
+	{"Authorization", normalizeAuthorization},
+	{"X-Api-Version", identityNormalize},
+	{"Accept-Language", normalizeAcceptLanguage},
+	{"X-Requested-With", identityNormalize},
+}
+
 // routingHeaders 定义影响路由决策的Header及其规范化方式
 // key: header名称（大小写不敏感）
 // normalize: 值规范化函数（如提取 Bearer 方案、截取第一个MIME类型等）
+// 保留供外部可能的查询（向后兼容），内部优先用 routingHeaderList。
 var routingHeaders = map[string]func(string) string{
 	"Accept":          normalizeAccept,
 	"Authorization":   normalizeAuthorization,
 	"X-Api-Version":   identityNormalize,
 	"Accept-Language": normalizeAcceptLanguage,
 	"X-Requested-With": identityNormalize,
+}
+
+// matchRoutingHeader 在 routingHeaderList 中按大小写不敏感匹配 header 名，
+// 返回命中条目（含规范名 canonicalName 与 normalize 函数）；未命中返回 nil。
+// 单次遍历列表（≤5 项），避免重复扫描。
+func matchRoutingHeader(headerName string) *routingHeaderEntry {
+	for i := range routingHeaderList {
+		if strings.EqualFold(routingHeaderList[i].name, headerName) {
+			return &routingHeaderList[i]
+		}
+	}
+	return nil
 }
 
 // normalizeAccept 规范化 Accept header
@@ -1319,29 +1351,44 @@ func identityNormalize(val string) string {
 // processRoutingHeaders 处理路由相关的Header
 // 使用两层结构：Header名称节点 → Header值节点
 // 这样同一个Header的不同值作为兄弟节点，便于后续变量合并
+//
+// 单次遍历请求 headers，对每个 header 名按 routingHeaderList 固定优先级
+// 大小写不敏感匹配，命中则规范化并建节点。替代原 map 遍历对每个 header
+// 调 headers.Get（每次 Get 遍历全部 headers + EqualFold，5 个 header 共 25 次比较）。
+//
+// 节点 key 用规范名（routingHeaderList 中的固定大小写，如 "Authorization"），
+// 而非请求中传入的 header 名（可能大小写不一）。这样不同请求用不同大小写
+// 写同一 header 时不再建多个节点，行为更一致。
 func (x *ReverseRouter) processRoutingHeaders(methodNode node.Node[node.NodeContext], headers request.Headers) error {
-	for headerName, normalize := range routingHeaders {
-		val := headers.Get(headerName)
+	for headerName, val := range headers {
 		if val == "" {
 			continue
 		}
+		// 在路由 header 列表中大小写不敏感匹配，一次拿到 normalize 与规范名
+		entry := matchRoutingHeader(headerName)
+		if entry == nil {
+			continue
+		}
 
-		normalizedValue := normalize(val)
+		normalizedValue := entry.normalize(val)
 		if normalizedValue == "" {
 			continue
 		}
 
+		// 用规范名（routingHeaderList 中的固定大小写）作节点 key
+		canonicalName := entry.name
+
 		// 查找或创建Header名称分组节点
-		headerGroupChild := methodNode.FindChildByKey(headerName)
+		headerGroupChild := methodNode.FindChildByKey(canonicalName)
 		var headerGroupNode *node.RequestHeaderNode
 
 		if headerGroupChild != nil && headerGroupChild.GetType() == "request_header" {
 			headerGroupNode = headerGroupChild.(*node.RequestHeaderNode)
 		} else {
 			// 创建新的Header名称分组节点
-			headerGroupNode = node.NewRequestHeaderNode(headerName)
+			headerGroupNode = node.NewRequestHeaderNode(canonicalName)
 			if err := methodNode.AddChild(headerGroupNode); err != nil {
-				return fmt.Errorf("添加Header路由节点 '%s' 失败: %w", headerName, err)
+				return fmt.Errorf("添加Header路由节点 '%s' 失败: %w", canonicalName, err)
 			}
 		}
 
