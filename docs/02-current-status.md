@@ -20,29 +20,30 @@
 | **pkg/tree** | 94.7% |
 | **pkg/value** | 100.0% |
 
-## 吞吐量基线（2026-07-17）
+## 吞吐量基线（2026-07-18，Phase 2）
 
 环境：AMD Ryzen 9 5950X 32 核，Go 1.23.2。
 
-| 场景 | 优化前 | 优化后 | 单核吞吐 |
-|------|--------|--------|----------|
-| Merge（1000 ID 合并） | 630μs/op, 1634 allocs | **1.5μs/op, 15 allocs** | ~65万 URL/s |
-| 纯路径命中（真实流量，ID 有重复） | — | 1.27μs/op, 14 allocs | **~78万 URL/s** |
-| POST + JSON body | — | 3.55μs/op, 39 allocs | ~28万 URL/s |
-| curl 解析 | 不支持 | 1.92μs/op, 30 allocs | ~52万 curl/s |
-| curl 解析 + 路由还原（全链路） | 不支持 | 3.31μs/op, 30 allocs | ~30万 curl/s |
-| 32 核并发 Merge | 受 mergeMu 串行点限制 | 146μs/op（总） | 并行受限（已知约束） |
+| 场景 | Phase 1 末 | Phase 2 末 | 单核吞吐 |
+|------|-----------|-----------|----------|
+| 纯路径命中（真实流量，ID 有重复） | 1.27μs/op, 14 allocs | **0.69μs/op, 6 allocs** | **~146万 URL/s** |
+| Merge（10000 ID 合并） | 1.5μs/op, 15 allocs（1000 ID） | 1.65μs/op, 7 allocs（10000 ID） | ~60万 URL/s |
+| POST + JSON body | 3.55μs/op, 39 allocs | 2.68μs/op, 31 allocs | ~37万 URL/s |
+| curl 解析 | 1.92μs/op, 30 allocs | 1.92μs/op, 30 allocs | ~52万 curl/s |
+| 32 核并发（命中已存在变量节点） | 受 mergeMu 限制 | 160μs/op, 8 allocs | 1→8 核 12x 加速，16/32 核稳定 |
 
-**瓶颈根因**：类型推断 O(N²) 全量重算（每次命中变量节点对全部累积值做 14 正则匹配）+ `stripPhoneSeparators` 的 `strings.Builder` 逐字符分配（pprof 占 97% 分配）。
+**Phase 2 瓶颈根因**（pprof）：`net/url.Parse` 占 40.87% CPU（全功能解析开销大）、`NewHttpRequestPath` 每路径段一次堆分配（占 33% 内存）、`processRoutingHeaders` 5×O(n) Get、`paths` slice append 扩容。
 
-**优化手段**：
-1. `stripPhoneSeparators` 零分配快路径——纯数字值直接返回原串，仅含分隔符值走 Builder（消除 97% 分配）
-2. 类型推断增量缓存——`lastInferredUniqueCount` 字段（typeMu 保护），仅当 unique 值数变化才重算推断，消除 O(N²)
-3. 新增 curl 命令解析器——网络空间测绘场景核心输入格式（手写 shell-token 切分，支持引号/续行/转义/多 header/-d/-X）
+**Phase 2 优化手段**：
+1. **`fast_url_parser`** 轻量解析替代 `net/url.Parse`——仅提取 path+query 不构造 `*url.URL`，纯路径零分配快路径；行为对齐 `net/url`（非法 `%xx` 报 `errInvalidEscape`、空 scheme 报 `errMissingScheme`，双 oracle 测试校验）
+2. **`HttpRequestPath` + `paths` slice 双 `sync.Pool`**——每段 `*HttpRequestPath` 与容器 slice 复用，消除每段堆分配与 append 扩容
+3. **`processRoutingHeaders` 单次遍历**——`routingHeaderList` 有序切片 + `canonicalName`，消除 5×O(n) Get
+4. **`allParams` slice 预分配**——`len(pathParams)+len(params)` 一次到位避免扩容
+5. **`findOrCreatePathNode` double-check 修复**——既有并发竞态（多 goroutine 重复 AddChild 导致 children 重复 key + 合并误判），未命中创建分支用 `mergeMu` 串行化 + 锁内 double-check，命中已存在节点走无锁快路径不受影响
 
-**产品目标达成**："每秒处理几十万条 URL/cURL" —— 单核纯路径 ~78万/s，远超目标；真实流量 ID 有重复走此路径。curl 解析本身无瓶颈（~52万/s）。
+**产品目标达成**："每秒处理几十万条 URL/cURL" —— 单核纯路径 **~146万/s**，较 Phase 1（~78万/s）提升 87%，远超目标；真实流量 ID 有重复走此路径。8 核并发 12x 加速。
 
-**已知约束**：并发合并受 `mergeMu` 串行临界区限制（`checkAndMergeSiblings` 多步非原子，需串行化避免中间态竞争）。合并低频（每 N 请求触发），router 级串行化吞吐代价可接受。彻底消除需大改 BaseNode 加锁回调，收益低未做。
+**已知约束**：并发合并受 `mergeMu` 串行临界区限制。合并低频（每 N 请求触发），router 级串行化吞吐代价可接受。命中已存在变量节点的纯路径请求不进合并临界区，可完全并行（PurePath 6 allocs 无 mergeMu 开销）。
 
 ## 模块完成度总览
 
