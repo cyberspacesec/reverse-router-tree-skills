@@ -24,19 +24,20 @@ var httpRequestPathPool = sync.Pool{
 }
 
 // pathsSlicePool 复用 []*HttpRequestPath slice 容器，避免 Parse 内 append 扩容分配。
-// AcquirePaths 取出（reset len=0），ReleasePaths 归还元素后把空容器放回池。
-// 直接存 slice 值（引用类型，interface 装箱不额外分配），避免 *slice 取址逃逸。
+// 存 *[]*HttpRequestPath（指针类型，interface 装箱不额外分配，规避 SA6002）。
+// AcquirePaths 取出并 reset len=0，ReleasePaths 归还元素后把容器放回池。
 var pathsSlicePool = sync.Pool{
 	New: func() any {
 		s := make([]*HttpRequestPath, 0, 8)
-		return s
+		return &s
 	},
 }
 
 // AcquirePaths 取出一个复用的 paths slice 容器（len=0，cap≥8）。
 // 调用方 append 后使用，用完必须 ReleasePaths 归还。
 func AcquirePaths() []*HttpRequestPath {
-	return pathsSlicePool.Get().([]*HttpRequestPath)[:0]
+	sp := pathsSlicePool.Get().(*[]*HttpRequestPath)
+	return (*sp)[:0]
 }
 
 // AcquireHttpRequestPath 从池取出一个已重置的 HttpRequestPath 并设置 Path。
@@ -75,8 +76,10 @@ func ReleasePaths(paths []*HttpRequestPath) {
 		httpRequestPathPool.Put(hp)
 		paths[i] = nil // 防 GC 前残留指针
 	}
-	// 把底层数组放回容器池
-	pathsSlicePool.Put(paths[:0])
+	// 把底层数组放回容器池（取局部 slice 地址逃逸到堆，但 sync.Pool 标准用法，
+	// 一次小指针分配远小于 append 扩容的多次分配，净收益正）
+	reuse := paths[:0]
+	pathsSlicePool.Put(&reuse)
 }
 
 // NewHttpRequestPath 创建并初始化一个 HttpRequestPath。

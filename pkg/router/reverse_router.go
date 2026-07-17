@@ -368,18 +368,9 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 	return newPathNode, nil
 }
 
-// checkAndMergeSiblings 检查同一父节点下的兄弟路径节点数量
-func (x *ReverseRouter) checkAndMergeSiblings(parent node.Node[node.NodeContext]) {
-	// 整个合并临界区串行化，避免并发合并同一 parent 导致中间态竞争。
-	// 见 ReverseRouter.mergeMu 注释。
-	x.mergeMu.Lock()
-	defer x.mergeMu.Unlock()
-	x.checkAndMergeSiblingsLocked(parent)
-}
-
-// checkAndMergeSiblingsLocked 是 checkAndMergeSiblings 的无锁版本，
-// 供调用方在已持有 mergeMu 时直接调用，避免重入死锁。
-// 调用方必须确保已持 mergeMu。
+// checkAndMergeSiblingsLocked 检查同一父节点下的兄弟路径节点数量（无锁版本）。
+// 整个合并临界区由调用方持 mergeMu 串行化，避免并发合并同一 parent 导致中间态竞争。
+// 见 ReverseRouter.mergeMu 注释。调用方必须确保已持 mergeMu。
 func (x *ReverseRouter) checkAndMergeSiblingsLocked(parent node.Node[node.NodeContext]) {
 
 	pathChildren := make([]node.Node[node.NodeContext], 0)
