@@ -23,6 +23,22 @@ var httpRequestPathPool = sync.Pool{
 	},
 }
 
+// pathsSlicePool 复用 []*HttpRequestPath slice 容器，避免 Parse 内 append 扩容分配。
+// AcquirePaths 取出（reset len=0），ReleasePaths 归还元素后把空容器放回池。
+// 直接存 slice 值（引用类型，interface 装箱不额外分配），避免 *slice 取址逃逸。
+var pathsSlicePool = sync.Pool{
+	New: func() any {
+		s := make([]*HttpRequestPath, 0, 8)
+		return s
+	},
+}
+
+// AcquirePaths 取出一个复用的 paths slice 容器（len=0，cap≥8）。
+// 调用方 append 后使用，用完必须 ReleasePaths 归还。
+func AcquirePaths() []*HttpRequestPath {
+	return pathsSlicePool.Get().([]*HttpRequestPath)[:0]
+}
+
 // AcquireHttpRequestPath 从池取出一个已重置的 HttpRequestPath 并设置 Path。
 func AcquireHttpRequestPath(path string) *HttpRequestPath {
 	hp := httpRequestPathPool.Get().(*HttpRequestPath)
@@ -46,8 +62,9 @@ func ReleasePath(hp *HttpRequestPath) {
 	httpRequestPathPool.Put(hp)
 }
 
-// ReleasePaths 批量归还 paths slice 中的所有 *HttpRequestPath。
-// 归还后 paths slice 不再可用，调用方不应再访问其中的元素。
+// ReleasePaths 批量归还 paths slice 中的所有 *HttpRequestPath，
+// 并把 slice 容器放回 pathsSlicePool 供下次 AcquirePaths 复用。
+// 归还后 paths 不再可用，调用方不应再访问其中的元素。
 func ReleasePaths(paths []*HttpRequestPath) {
 	for i := range paths {
 		hp := paths[i]
@@ -56,7 +73,10 @@ func ReleasePaths(paths []*HttpRequestPath) {
 		hp.pathParamValue = ""
 		hp.isPathParam = false
 		httpRequestPathPool.Put(hp)
+		paths[i] = nil // 防 GC 前残留指针
 	}
+	// 把底层数组放回容器池
+	pathsSlicePool.Put(paths[:0])
 }
 
 // NewHttpRequestPath 创建并初始化一个 HttpRequestPath。

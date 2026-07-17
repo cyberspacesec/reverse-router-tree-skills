@@ -22,15 +22,18 @@ func (x *UrlParser) Parse() ([]*HttpRequestPath, []*HttpParam, error) {
 		return nil, nil, err
 	}
 
-	// 解析路径段（复用栈上 slice，小路径零额外分配）
-	var paths []*HttpRequestPath
+	// 解析路径段（paths 容器从池复用，避免 append 扩容分配）
+	paths := AcquirePaths()
 	if pathStr != "" {
+		// segments 用临时栈上 slice 切分（≤8 段零分配；超出由 make 扩容，罕见）
 		segments := make([]string, 0, 8)
 		segments = fastSplitPathSegments(pathStr, segments)
 		for _, seg := range segments {
 			// %xx 解码（对齐 net/url 的 PathUnescape，非法 %xx 返回 error 透传）
 			decoded, err := fastDecodeSegment(seg)
 			if err != nil {
+				// 出错也要归还已取的 paths 容器，避免池泄漏
+				ReleasePaths(paths)
 				return nil, nil, err
 			}
 			// 过滤 . 和 .. 段（路径遍历安全）
