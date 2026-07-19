@@ -1,6 +1,7 @@
 package request
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -201,5 +202,103 @@ func TestParseCurl_Errors(t *testing.T) {
 				t.Fatalf("期望返回错误，但解析成功")
 			}
 		})
+	}
+}
+
+// TestParseCurl_FlagsWithValue 验证带值 flag（--max-time/--connect-timeout/-m 等）
+// 的值不会被误当 URL。修复前 --max-time 30 'http://x' 的 URL 被错误设为 "30"。
+func TestParseCurl_FlagsWithValue(t *testing.T) {
+	cases := []struct {
+		name       string
+		curl       string
+		wantURL    string
+		wantMethod string
+	}{
+		{
+			name:       "max-time with value",
+			curl:       `curl --max-time 30 'http://api.example.com/users/123'`,
+			wantURL:    "http://api.example.com/users/123",
+			wantMethod: "GET",
+		},
+		{
+			name:       "connect-timeout + max-time",
+			curl:       `curl --connect-timeout 5 --max-time 30 'http://api.example.com/users'`,
+			wantURL:    "http://api.example.com/users",
+			wantMethod: "GET",
+		},
+		{
+			name:       "retry flags",
+			curl:       `curl --retry 3 --retry-delay 2 'http://api.example.com/x'`,
+			wantURL:    "http://api.example.com/x",
+			wantMethod: "GET",
+		},
+		{
+			name:       "user-agent flag value not consumed as body",
+			curl:       `curl -A 'MyAgent/1.0' 'http://api.example.com/x'`,
+			wantURL:    "http://api.example.com/x",
+			wantMethod: "GET",
+		},
+		{
+			name:       "output flag value not consumed as url",
+			curl:       `curl -o /tmp/out 'http://api.example.com/x'`,
+			wantURL:    "http://api.example.com/x",
+			wantMethod: "GET",
+		},
+		{
+			name:       "value flags before POST with body",
+			curl:       `curl --connect-timeout 5 -X POST 'http://api.example.com/users' -d '{"a":1}'`,
+			wantURL:    "http://api.example.com/users",
+			wantMethod: "POST",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := ParseCurl(tc.curl)
+			if err != nil {
+				t.Fatalf("ParseCurl(%q) err: %v", tc.curl, err)
+			}
+			if r.GetUrl() != tc.wantURL {
+				t.Errorf("URL = %q, want %q", r.GetUrl(), tc.wantURL)
+			}
+			if r.GetMethod() != tc.wantMethod {
+				t.Errorf("Method = %q, want %q", r.GetMethod(), tc.wantMethod)
+			}
+		})
+	}
+}
+
+// TestParseCurl_GetFlagAndUrlFlag 验证 -G 把 -d 转 query、--url 显式指定 URL。
+func TestParseCurl_GetFlagAndUrlFlag(t *testing.T) {
+	// -G：-d 的值作为 query 串附加到 URL，不应作为 body
+	r, err := ParseCurl(`curl -G 'http://api.example.com/search' -d 'q=go&page=1'`)
+	if err != nil {
+		t.Fatalf("ParseCurl -G err: %v", err)
+	}
+	if got := r.GetUrl(); !strings.Contains(got, "q=go") || !strings.Contains(got, "page=1") {
+		t.Errorf("-G URL = %q, 应含 q=go 和 page=1", got)
+	}
+	if got := r.GetMethod(); got != "GET" {
+		t.Errorf("-G Method = %q, want GET", got)
+	}
+	if len(r.GetBody()) != 0 {
+		t.Errorf("-G 不应有 body，实际 %q", string(r.GetBody()))
+	}
+
+	// -G 且 URL 已含 query：用 & 拼接
+	r2, err := ParseCurl(`curl -G 'http://api.example.com/search?lang=zh' -d 'q=go'`)
+	if err != nil {
+		t.Fatalf("ParseCurl -G& err: %v", err)
+	}
+	if !strings.Contains(r2.GetUrl(), "lang=zh") || !strings.Contains(r2.GetUrl(), "&q=go") {
+		t.Errorf("-G 拼接 & 失败: %q", r2.GetUrl())
+	}
+
+	// --url 显式 URL 优先于位置 URL
+	r3, err := ParseCurl(`curl --url 'http://api.example.com/explicit'`)
+	if err != nil {
+		t.Fatalf("ParseCurl --url err: %v", err)
+	}
+	if got := r3.GetUrl(); got != "http://api.example.com/explicit" {
+		t.Errorf("--url = %q, want http://api.example.com/explicit", got)
 	}
 }

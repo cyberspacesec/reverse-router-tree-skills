@@ -170,27 +170,89 @@ func parseCurlTokens(tokens []string) (*HttpRequest, error) {
 	var body []byte
 	hasBody := false
 	urlSet := false
+	useQueryForData := false // -G 触发：-d 值作为 query 而非 body
 
-	// 无害 flag 直接跳过（不消费后续参数）
+	// 无害 flag：不消费后续参数，直接跳过（如 --compressed）
 	harmlessFlags := map[string]bool{
-		"--compressed": true,
-		"-s":           true,
-		"--silent":     true,
-		"-k":           true,
-		"--insecure":   true,
-		"-L":           true,
-		"--location":   true,
-		"-i":           true,
-		"--include":    true,
-		"-S":           true,
-		"--show-error": true,
-		"-f":           true,
-		"--fail":       true,
+		"--compressed":     true,
+		"-s":               true,
+		"--silent":         true,
+		"-k":               true,
+		"--insecure":       true,
+		"-L":               true,
+		"--location":       true,
+		"-i":               true,
+		"--include":        true,
+		"-S":               true,
+		"--show-error":     true,
+		"-f":               true,
+		"--fail":           true,
 		"--fail-with-body": true,
-		"-v":           true,
-		"--verbose":    true,
-		"-q":           true,
+		"-v":               true,
+		"--verbose":        true,
+		"-q":               true,
+		"--http1.1":        true,
+		"--http2":          true,
+		"-0":               true,
+		"--http1.0":        true,
+		"-N":               true,
+		"--no-buffer":      true,
+		"--tcp-nodelay":    true,
+		"--tcp-fastopen":   true,
 	}
+
+	// 带值 flag：消费下一个 token 作为参数值，值不进 body/header/url。
+	// 测绘平台导出的 curl 常含这些超时/重试/连接/输出参数，
+	// 其值若不消费会被误当 URL（如 --max-time 30 的 30 被当 URL）。
+	valueFlags := map[string]bool{
+		"--max-time":          true,
+		"-m":                  true,
+		"--connect-timeout":   true,
+		"--retry":             true,
+		"--retry-delay":       true,
+		"--retry-max-time":    true,
+		"--max-redirs":        true,
+		"--rate":              true,
+		"--limit-rate":        true,
+		"--speed-limit":       true,
+		"--speed-time":        true,
+		"--expect100-timeout": true,
+		"--resolve":           true,
+		"--url":               true, // --url <url> 显式指定 URL
+		"-o":                  true,
+		"--output":            true,
+		"-e":                  true,
+		"--referer":           true,
+		"-A":                  true,
+		"--user-agent":        true,
+		"-u":                  true,
+		"--user":              true,
+		"--cookie-jar":        true,
+		"--cert":              true,
+		"--key":               true,
+		"--cacert":            true,
+		"--capath":            true,
+		"--ciphers":           true,
+		"-x":                  true,
+		"--proxy":             true,
+		"-U":                  true,
+		"--proxy-user":        true,
+		"-b":                  true,
+		"--cookie":            true, // 值可转 Cookie header，此处仅消费不解析
+		"--dns-servers":       true,
+		"--interface":         true,
+		"--noproxy":           true,
+		"--form":              true,
+		"-F":                  true,
+		"--write-out":         true,
+		"-w":                  true,
+		"--config":            true,
+		"-K":                  true,
+	}
+
+	// --url 指定的 URL（若有则优先于位置 URL）
+	var urlFlagValue string
+	urlFlagSet := false
 
 	i := 1
 	for i < len(tokens) {
@@ -199,6 +261,21 @@ func parseCurlTokens(tokens []string) (*HttpRequest, error) {
 		// 处理 -XPOST / -XPOST 紧凑形式（flag 与值连写）
 		if strings.HasPrefix(tok, "-X") && len(tok) > 2 {
 			method = strings.ToUpper(tok[2:])
+			i++
+			continue
+		}
+
+		// 带值 flag：消费下一个 token 作为参数值（不进 body/header/url）
+		if valueFlags[tok] {
+			if i+1 >= len(tokens) {
+				return nil, newCurlParseError("%s 缺少参数", tok)
+			}
+			i++
+			if tok == "--url" {
+				urlFlagValue = tokens[i]
+				urlFlagSet = true
+			}
+			// 其余带值 flag 的值直接丢弃（不影响还原结果）
 			i++
 			continue
 		}
@@ -225,10 +302,13 @@ func parseCurlTokens(tokens []string) (*HttpRequest, error) {
 			i++
 			body = []byte(tokens[i])
 			hasBody = true
+		case "-G", "--get":
+			// -G：把 -d 的值作为 query 串附加到 URL，而非作为 body。
+			// 标记后续 -d 走 query 路径（见函数末尾处理）。
+			useQueryForData = true
 		default:
 			// 无害 flag 直接跳过
 			if harmlessFlags[tok] {
-				// 不消费参数
 				break
 			}
 			// 未知的长 flag（--xxx）整体跳过
@@ -239,7 +319,7 @@ func parseCurlTokens(tokens []string) (*HttpRequest, error) {
 			if strings.HasPrefix(tok, "-") && len(tok) > 1 {
 				break
 			}
-			// 非 flag token 视为 URL（取第一个）
+			// 非 flag token 视为位置 URL（取第一个）
 			if !urlSet {
 				url = tok
 				urlSet = true
@@ -248,8 +328,25 @@ func parseCurlTokens(tokens []string) (*HttpRequest, error) {
 		i++
 	}
 
+	// --url 显式指定优先于位置 URL
+	if urlFlagSet {
+		url = urlFlagValue
+		urlSet = true
+	}
+
 	if !urlSet {
 		return nil, newCurlParseError("缺少 URL")
+	}
+
+	// -G：把 -d 的值作为 query 串附加到 URL
+	if useQueryForData && hasBody {
+		sep := "?"
+		if strings.Contains(url, "?") {
+			sep = "&"
+		}
+		url = url + sep + string(body)
+		hasBody = false
+		body = nil
 	}
 
 	// -d 隐含 POST：未显式指定方法且存在请求体时默认 POST
