@@ -11,47 +11,30 @@ import (
 	"log"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/exporter"
-	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/request"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/router"
 )
 
 func main() {
 	r := router.NewReverseRouter()
 
-	// 模拟黑盒抓包流量：一个 RESTful 资源 /api/users 的 CRUD 序列。
-	// 数字 ID 会被自动合并为 {users_id} 路径变量；query 参数会被还原；
-	// Authorization 头会被推断为 Bearer 安全方案。
-	samples := []struct {
-		url    string
-		method string
-		body   string
-	}{
-		{"/api/users?page=1&size=20", "GET", ""},
-		{"/api/users?page=2&size=20", "GET", ""},
-		{"/api/users/123", "GET", ""},
-		{"/api/users/456", "GET", ""},
-		{"/api/users/789", "GET", ""}, // 第 3 个数字 ID → 触发合并为 {users_id}
-		{"/api/users", "POST", `{"name":"alice","age":30}`},
-		{"/api/users/123", "PUT", `{"name":"alice2"}`},
-		{"/api/users/123", "DELETE", ""},
+	// 模拟测绘平台导出的一批 curl 命令：数字 ID 合并为 {users_id}，
+	// query 参数还原，Authorization 头推断为 Bearer 安全方案。
+	// 用 ReverseCurls 批量喂入：单条坏样本不中断整批（fail-soft）。
+	curls := []string{
+		`curl 'http://api.example.com/api/users?page=1&size=20' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
+		`curl 'http://api.example.com/api/users?page=2&size=20' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
+		`curl 'http://api.example.com/api/users/123' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
+		`curl 'http://api.example.com/api/users/456' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
+		`curl 'http://api.example.com/api/users/789' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
+		`curl 'http://api.example.com/api/users' -X POST -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9' -H 'Content-Type: application/json' -d '{"name":"alice","age":30}'`,
+		`curl 'http://api.example.com/api/users/123' -X PUT -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9' -H 'Content-Type: application/json' -d '{"name":"alice2"}'`,
+		`curl 'http://api.example.com/api/users/123' -X DELETE -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
 	}
-
-	for _, s := range samples {
-		h := request.Headers{}
-		h.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiJ9...")
-		h.Set("Content-Type", "application/json")
-		var body []byte
-		if s.body != "" {
-			body = []byte(s.body)
-		}
-		req := request.NewHttpRequest(s.url, h, s.method, body)
-		if err := r.ReverseHttpRequest(req); err != nil {
-			log.Fatalf("处理请求 %s %s 失败: %v", s.method, s.url, err)
-		}
+	result := r.ReverseCurls(curls)
+	fmt.Printf("=== 批量喂入结果 ===\n成功 %d 条，失败 %d 条\n", result.Processed, result.Failed)
+	for _, e := range result.Errors {
+		fmt.Printf("  失败[%d] %s: %v\n", e.Index, e.Raw, e.Err)
 	}
-
-	// 喂完数据后推断必需参数（基于出现频率）。
-	r.InferRequiredParams()
 
 	// 打印还原出的路由树。
 	fmt.Println("=== 还原路由树 ===")
