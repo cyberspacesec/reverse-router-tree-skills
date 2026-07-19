@@ -1,6 +1,6 @@
 # 当前实现状态
 
-> 最后更新：2026-07-01
+> 最后更新：2026-07-20
 
 ## 编译状态
 
@@ -29,7 +29,7 @@
 | 纯路径命中（真实流量，ID 有重复） | 1.27μs/op, 14 allocs | **0.69μs/op, 6 allocs** | **~146万 URL/s** |
 | Merge（10000 ID 合并） | 1.5μs/op, 15 allocs（1000 ID） | 1.65μs/op, 7 allocs（10000 ID） | ~60万 URL/s |
 | POST + JSON body | 3.55μs/op, 39 allocs | 2.68μs/op, 31 allocs | ~37万 URL/s |
-| curl 解析 | 1.92μs/op, 30 allocs | 1.92μs/op, 30 allocs | ~52万 curl/s |
+| curl 解析 | 1.92μs/op, 30 allocs | 1.11μs/op, 25 allocs | ~90万 curl/s |
 | 32 核并发（命中已存在变量节点） | 受 mergeMu 限制 | 160μs/op, 8 allocs | 1→8 核 12x 加速，16/32 核稳定 |
 
 **Phase 2 瓶颈根因**（pprof）：`net/url.Parse` 占 40.87% CPU（全功能解析开销大）、`NewHttpRequestPath` 每路径段一次堆分配（占 33% 内存）、`processRoutingHeaders` 5×O(n) Get、`paths` slice append 扩容。
@@ -45,6 +45,37 @@
 
 **已知约束**：并发合并受 `mergeMu` 串行临界区限制。合并低频（每 N 请求触发），router 级串行化吞吐代价可接受。命中已存在变量节点的纯路径请求不进合并临界区，可完全并行（PurePath 6 allocs 无 mergeMu 开销）。
 
+## curl 解析器真实场景健壮化 + 批量喂入（2026-07-20）
+
+测绘平台导出的 curl 命令常带超时/重试/连接/输出等参数，原解析器把"带值 flag 的值"误当 URL，是上层集成直接阻塞的致命 bug。
+
+### 修复的真实 bug
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| `curl --max-time 30 'http://x'` | URL="30"（致命） | URL=http://x，值 30 被消费丢弃 |
+| `curl --connect-timeout 5 'http://x'` | URL="5" | URL=http://x |
+| `curl -G 'http://x/search' -d 'q=go'` | body=q=go POST（语义错） | URL=http://x/search?q=go，GET，无 body |
+| `curl --url 'http://explicit' http://positional` | URL=http://positional | URL=http://explicit（--url 优先） |
+
+### curl flag 三分类
+
+- **valueFlags**（消费下一个 token）：`--max-time`/`-m`/`--connect-timeout`/`--retry`/`--retry-delay`/`--retry-max-time`/`--max-redirs`/`--rate`/`--limit-rate`/`--speed-limit`/`--speed-time`/`--expect100-timeout`/`--resolve`/`--url`/`-o`/`--output`/`-e`/`--referer`/`-A`/`--user-agent`/`-u`/`--user`/`--cookie-jar`/`--cert`/`--key`/`--cacert`/`--capath`/`--ciphers`/`-x`/`--proxy`/`-U`/`--proxy-user`/`-b`/`--cookie`/`--dns-servers`/`--interface`/`--noproxy`/`--form`/`-F`/`--write-out`/`-w`/`--config`/`-K`
+- **harmlessFlags**（跳过）：`--compressed`/`-s`/`--silent`/`-k`/`--insecure`/`-L`/`--location`/`-i`/`--include`/`-S`/`--show-error`/`-f`/`--fail`/`--fail-with-body`/`-v`/`--verbose`/`-q`/`--http1.1`/`--http2`/`-0`/`--http1.0`/`-N`/`--no-buffer`/`--tcp-nodelay`/`--tcp-fastopen`
+- **未知 flag**（`--xxx`/`-x`）：整体跳过
+
+两个 map 提到包级 `curlHarmlessFlags`/`curlValueFlags`，避免每次 `parseCurlTokens` 重建字面量分配（CurlParse 31→25 allocs）。
+
+### 批量 fail-soft API
+
+`pkg/router/batch.go` 新增 `ReverseRequests([]*request.HttpRequest) BatchResult` 与 `ReverseCurls([]string) BatchResult`：
+
+- 逐条喂入，单条解析/处理失败不中断整批
+- `BatchResult{Processed, Failed int; Errors []BatchError}`，`BatchError{Index, Raw, Err}`
+- 失败详情上限 `maxBatchErrors=100`（超限只计数不记详情），`Raw` 截断到 `maxBatchErrorRawLen=128` 防超长撑爆日志
+- 批次结束自动 `InferRequiredParams`
+- 适合上层一次导出上万条 curl 的场景：坏样本被跳过并记入 Errors，不影响其余还原
+
 ## 模块完成度总览
 
 | 模块 | 状态 | 完成度 | 说明 |
@@ -55,7 +86,7 @@
 | **router（路由层）** | ✅ | 95% | Header/Cookie路由、参数类型推断、IsNeedRequest完善、结构化日志+可观测性统计 |
 | **inference（推断层）** | ✅ | 95% | 物理类型+逻辑类型+链式推断规则 |
 | **value（值层）** | ✅ | 100% | 类型体系完善，ValueMetric并发安全 |
-| **exporter（导出层）** | ✅ | 78% | OpenAPI 3.0.3 规范导出，路径变量还原+参数+请求体 |
+| **exporter（导出层）** | ✅ | 97% | OpenAPI 3.0.3 规范导出，路径变量还原+参数+请求体 |
 
 ## 各模块详细状态
 
@@ -115,7 +146,11 @@
   - 支持 `-X`/`--request`、`-H`/`--header`（多个）、`-d`/`--data`/`--data-raw`/`--data-binary`/`--data-ascii`
   - 有 `-d` 无显式 `-X` 默认 POST，无 Content-Type 时默认 `application/x-www-form-urlencoded`
   - 无害 flag 跳过（`--compressed`/`-s`/`-k`/`-L`/`--insecure`/`--silent` 等）；`-XPOST` 紧凑形式
+  - **flag 三分类**（2026-07-20）：valueFlags 消费下 token（`--max-time`/`--connect-timeout`/`-A`/`-o`/`--url` 等），harmlessFlags 跳过，未知 flag 整体跳过——消除"带值 flag 的值被误当 URL"致命 bug
+  - **`-G`/`--get`**：`-d` 值作为 query 串附加到 URL（含 `?` 用 `&` 拼接）而非 body
+  - **`--url`**：显式 URL 优先于位置 URL
   - 网络空间测绘场景核心输入格式（抓包常以 curl 形态留存）
+  - **批量喂入**（见 router 层）：`ReverseCurls([]string) BatchResult` fail-soft 逐条解析，坏样本跳过不中断
 - **Cookies**：Cookie集合
   - ParseCookies() 解析 Cookie header 字符串
   - Get/Has/GetAll/String 方法
@@ -156,6 +191,7 @@
     8. Header路由节点（两层结构：名称分组→值子节点）
     9. Cookie路由节点（两层结构：名称分组→值子节点）
   - `IsNeedRequest()` ✅：检查路径、方法、参数、Content-Type、Header路由、Cookie路由
+  - **`ReverseRequests`/`ReverseCurls`** ✅（2026-07-20）：批量 fail-soft 喂入，单条失败不中断整批，`BatchResult` 聚合 Processed/Failed/Errors（详情上限 100、Raw 截断 128），批次结束自动 `InferRequiredParams`
   - **Header路由** ✅：
     - 支持的路由Header：Accept、Authorization、X-Api-Version、Accept-Language、X-Requested-With
     - Header值规范化：
