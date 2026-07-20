@@ -791,10 +791,10 @@ func TestLogicalType_MixedFormatPhone(t *testing.T) {
 	rule := NewLogicalTypeInferenceRule()
 
 	phoneNode := node.NewRequestPathVariableNode("phone", "")
-	phoneNode.ObserveValue("13812345678")      // 标准
-	phoneNode.ObserveValue("159-1234-5678")    // 带横线
-	phoneNode.ObserveValue("186 1234 5678")    // 带空格
-	phoneNode.ObserveValue("abc12345")         // 噪声数据
+	phoneNode.ObserveValue("13812345678")   // 标准
+	phoneNode.ObserveValue("159-1234-5678") // 带横线
+	phoneNode.ObserveValue("186 1234 5678") // 带空格
+	phoneNode.ObserveValue("abc12345")      // 噪声数据
 
 	inferred, err := rule.Infer(phoneNode)
 	if err != nil {
@@ -848,10 +848,10 @@ func TestLogicalType_MobileAndLandlineMix(t *testing.T) {
 	rule := NewLogicalTypeInferenceRule()
 
 	phoneNode := node.NewRequestPathVariableNode("tel", "")
-	phoneNode.ObserveValue("13812345678")      // 手机号
-	phoneNode.ObserveValue("010-87654321")     // 座机号
-	phoneNode.ObserveValue("15912345678")      // 手机号
-	phoneNode.ObserveValue("021-12345678")     // 座机号
+	phoneNode.ObserveValue("13812345678")  // 手机号
+	phoneNode.ObserveValue("010-87654321") // 座机号
+	phoneNode.ObserveValue("15912345678")  // 手机号
+	phoneNode.ObserveValue("021-12345678") // 座机号
 
 	inferred, err := rule.Infer(phoneNode)
 	if err != nil {
@@ -871,14 +871,14 @@ func TestStripPhoneSeparators_Equivalence(t *testing.T) {
 		in, want string
 	}{
 		{"13812345678", "13812345678"},           // 纯数字，快路径
-		{"+8613812345678", "+8613812345678"},      // 数字+，快路径
-		{"138-1234-5678", "13812345678"},          // 含横线，慢路径
-		{"138 1234 5678", "13812345678"},          // 含空格
-		{"(+86)138-1234-5678", "+8613812345678"},  // 含括号横线
-		{"abc", ""},                               // 全非数字，慢路径返回空
-		{"", ""},                                  // 空串
-		{"1", "1"},                                // 单字符数字
-		{"+", "+"},                                // 仅 +
+		{"+8613812345678", "+8613812345678"},     // 数字+，快路径
+		{"138-1234-5678", "13812345678"},         // 含横线，慢路径
+		{"138 1234 5678", "13812345678"},         // 含空格
+		{"(+86)138-1234-5678", "+8613812345678"}, // 含括号横线
+		{"abc", ""},                              // 全非数字，慢路径返回空
+		{"", ""},                                 // 空串
+		{"1", "1"},                               // 单字符数字
+		{"+", "+"},                               // 仅 +
 	}
 	for _, c := range cases {
 		if got := stripPhoneSeparators(c.in); got != c.want {
@@ -900,5 +900,29 @@ func TestStripPhoneSeparators_ZeroAlloc(t *testing.T) {
 	// 含分隔符值走慢路径，允许分配但结果正确
 	if got := stripPhoneSeparators("138-1234-5678"); got != "13812345678" {
 		t.Errorf("含分隔符值结果错误: %q", got)
+	}
+}
+
+// TestIsDecimalLike 覆盖 isDecimalLike 各分支：无小数点/位数≠2/含非数字/正常。
+// isDecimalLike 判定精确小数（金额类），要求小数部分恰好 2 位。
+func TestIsDecimalLike(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"100", false},      // 无小数点
+		{"1.23", true},      // 2 位小数（金额）
+		{"1.2", false},      // 1 位小数
+		{"1.234", false},    // 3 位小数
+		{"1.2a", false},     // 小数部分含非数字
+		{"price.99", false}, // 整数部分非数字
+		{".99", false},      // 空整数部分
+		{"1.", false},       // 空小数部分
+		{"9.99", true},      // 正常金额
+	}
+	for _, c := range cases {
+		if got := isDecimalLike(c.val); got != c.want {
+			t.Errorf("isDecimalLike(%q) = %v, want %v", c.val, got, c.want)
+		}
 	}
 }
