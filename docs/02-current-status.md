@@ -1,6 +1,6 @@
 # 当前实现状态
 
-> 最后更新：2026-07-20
+> 最后更新：2026-07-21
 
 ## 编译状态
 
@@ -8,16 +8,19 @@
 
 ## 测试覆盖率
 
-**全量口径（`-coverpkg=./...`）总覆盖率 90.6%**，`go test -race ./...` 全绿，staticcheck 全仓库清零。
+**全量口径（`-coverpkg=./...`）总覆盖率 92.0%**（较上轮 89.6% 提升 2.4pp），`go test -race ./...` 全绿，staticcheck 全仓库清零。
+
+本轮（2026-07-21）补全所有非辅助器 0% 函数：HttpRequestParam 全 getter/setter、curlParseError.Error、ReleasePath、Cookie/Header 节点 String 与 GetValueMetric、quickstart main() smoke test、generator/inference 辅助函数边界。删除 Deprecated 死存根 `ReverseRouter.FindNode`（始终返回 nil,nil，无调用方）。剩余未覆盖为 `assertion.go` 的 `Check` 测试辅助器失败分支（靠 `t.Errorf` 触发但不 fatal，强行补会制造"故意失败"噪音，是"测试器测自身"反模式，不纳入 100% 目标）。
 
 | 包 | 单包覆盖率 |
 |------|--------|
 | **pkg/exporter** | 97.2% |
-| **pkg/inference** | 87.1% |
-| **pkg/node** | 92.6% |
-| **pkg/request** | 92.2%（含新增 curl_parser.go） |
-| **pkg/router** | 85.6% |
 | **pkg/tree** | 94.7% |
+| **pkg/node** | 91.8% |
+| **pkg/router** | 90.3% |
+| **pkg/request** | 91.4% |
+| **pkg/inference** | 89.4% |
+| **pkg/generator** | 88.9% |
 | **pkg/value** | 100.0% |
 
 ## 吞吐量基线（2026-07-18，Phase 2）
