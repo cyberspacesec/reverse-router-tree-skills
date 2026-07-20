@@ -40,10 +40,10 @@ type MergeConfig struct {
 
 // DefaultMergeConfig 默认合并配置
 var DefaultMergeConfig = MergeConfig{
-	SiblingMergeThreshold:        3,
-	PatternSimilarityThreshold:   0.6,
-	SimilarLengthBreakThreshold:  6,
-	RequiredParamThreshold:       0.9,
+	SiblingMergeThreshold:       3,
+	PatternSimilarityThreshold:  0.6,
+	SimilarLengthBreakThreshold: 6,
+	RequiredParamThreshold:      0.9,
 }
 
 // ReverseRouter 用于对请求进行逆向工程，反推出web应用的路由树
@@ -55,10 +55,10 @@ type ReverseRouter struct {
 	// mergeRule 可选的自定义合并规则。nil 时走内置 findMergeableSiblings 逻辑。
 	// 读写均由 mergeMu 保护（与合并临界区同锁），SetMergeRule/GetMergeRule
 	// 持 mergeMu，findMergeableSiblings 在 checkAndMergeSiblings 临界区内直接读字段。
-	mergeRule     MergeRule
-	bodyParser    *request.BodyParser
-	logger        *RouterLogger
-	stats         *RouterStats
+	mergeRule  MergeRule
+	bodyParser *request.BodyParser
+	logger     *RouterLogger
+	stats      *RouterStats
 	// pathRouter/paramRouter/ctRouter 是查询侧复用的内部路由组件，无状态，
 	// 构造后只读。locateMethodNode/IsNeedRequest/FindRouteNode 通过它们查找
 	// 路径末端/参数/Content-Type 子节点，消除重复的 FindChildByKey 内联逻辑。
@@ -503,21 +503,21 @@ func NewPatternDetector() *PatternDetector {
 		patterns: []*regexp.Regexp{
 			// 高度具体的格式（优先匹配）
 			regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`), // UUID
-			regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`), // 邮箱
-			regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`), // IP地址
-			regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`),        // 日期格式
-			regexp.MustCompile(`^(?:\+?86)?1[3-9]\d{9}$`),  // 中国手机号
+			regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`),                              // 邮箱
+			regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`),                                          // IP地址
+			regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`),                                                            // 日期格式
+			regexp.MustCompile(`^(?:\+?86)?1[3-9]\d{9}$`),                                                       // 中国手机号
 			regexp.MustCompile(`^[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]$|^[1-9]\d{5}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}$`), // 身份证号
-			regexp.MustCompile(`^[3-6]\d{15,18}$`),         // 银行卡号
+			regexp.MustCompile(`^[3-6]\d{15,18}$`),              // 银行卡号
 			regexp.MustCompile(`^[\p{Han}][A-Z][A-Z0-9]{5,6}$`), // 车牌号
-			regexp.MustCompile(`^v[0-9]+$`),                 // 版本号格式，如 v1, v2, v3
-			regexp.MustCompile(`^[a-zA-Z]+[0-9]+$`),        // 字母+数字格式，如 abc123
+			regexp.MustCompile(`^v[0-9]+$`),                     // 版本号格式，如 v1, v2, v3
+			regexp.MustCompile(`^[a-zA-Z]+[0-9]+$`),             // 字母+数字格式，如 abc123
 			// 注意：不包含邮政编码(postalcode)模式
 			// 6位纯数字无法与普通数字ID、验证码、订单号等可靠区分，
 			// 误判率太高。6位数字会回退到 integer 模式，生成更合理的 {xxx_id} 变量名。
 			// 通用格式（最后匹配）
-			regexp.MustCompile(`^[0-9]+\.[0-9]+$`),          // 浮点数
-			regexp.MustCompile(`^[0-9]+$`),                  // 纯数字
+			regexp.MustCompile(`^[0-9]+\.[0-9]+$`), // 浮点数
+			regexp.MustCompile(`^[0-9]+$`),         // 纯数字
 		},
 		names: []string{
 			"uuid",
@@ -1094,14 +1094,6 @@ func (x *ReverseRouter) locateMethodNode(paths []*request.HttpRequestPath, metho
 	return pathEnd.FindChildByKey(method)
 }
 
-// FindNode 是早期预留的通用查找存根，语义不实用（签名与 HttpRequest 查询不匹配），
-// 始终返回 (nil, nil)。如需查询请求命中节点请用 FindRouteNode。
-//
-// Deprecated: 使用 FindRouteNode 替代。
-func (x *ReverseRouter) FindNode(n node.Node[node.NodeContext], routerContext node.NodeContext) (node.Node[node.NodeContext], error) {
-	return nil, nil
-}
-
 // 数学辅助函数
 func average(nums []int) float64 {
 	if len(nums) == 0 {
@@ -1319,10 +1311,10 @@ var routingHeaderList = []routingHeaderEntry{
 // normalize: 值规范化函数（如提取 Bearer 方案、截取第一个MIME类型等）
 // 保留供外部可能的查询（向后兼容），内部优先用 routingHeaderList。
 var routingHeaders = map[string]func(string) string{
-	"Accept":          normalizeAccept,
-	"Authorization":   normalizeAuthorization,
-	"X-Api-Version":   identityNormalize,
-	"Accept-Language": normalizeAcceptLanguage,
+	"Accept":           normalizeAccept,
+	"Authorization":    normalizeAuthorization,
+	"X-Api-Version":    identityNormalize,
+	"Accept-Language":  normalizeAcceptLanguage,
 	"X-Requested-With": identityNormalize,
 }
 
