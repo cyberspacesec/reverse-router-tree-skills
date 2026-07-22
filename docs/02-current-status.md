@@ -8,20 +8,20 @@
 
 ## 测试覆盖率
 
-**全量口径（`-coverpkg=./...`）总覆盖率 92.0%**（较上轮 89.6% 提升 2.4pp），`go test -race ./...` 全绿，staticcheck 全仓库清零。
+**全量口径（`-coverpkg=./...`）总覆盖率 92.2%**（较上轮 92.0% 再提升 0.2pp），`go test -race ./...` 全绿，staticcheck 全仓库清零。
 
-本轮（2026-07-21）补全所有非辅助器 0% 函数：HttpRequestParam 全 getter/setter、curlParseError.Error、ReleasePath、Cookie/Header 节点 String 与 GetValueMetric、quickstart main() smoke test、generator/inference 辅助函数边界。删除 Deprecated 死存根 `ReverseRouter.FindNode`（始终返回 nil,nil，无调用方）。剩余未覆盖为 `assertion.go` 的 `Check` 测试辅助器失败分支（靠 `t.Errorf` 触发但不 fatal，强行补会制造"故意失败"噪音，是"测试器测自身"反模式，不纳入 100% 目标）。
+本轮（2026-07-21）Phase 3 补全：`appendBatchError` 截断后缀验证（100%）、`chain.Infer` 回退 string（85.7%）、`isEnumLike` 超长值提前终止（86.4%）。所有有生产价值的非辅助器函数已达 100% 或接近。剩余未覆盖为 `assertion.go` 的 `Check` 测试辅助器失败分支（靠 `t.Errorf` 触发但不 fatal，强行补会制造"故意失败"噪音，是"测试器测自身"反模式，不纳入 100% 目标）。
 
 | 包 | 单包覆盖率 |
 |------|--------|
+| **pkg/value** | 100.0% |
 | **pkg/exporter** | 97.2% |
 | **pkg/tree** | 94.7% |
 | **pkg/node** | 91.8% |
-| **pkg/router** | 90.3% |
 | **pkg/request** | 91.4% |
-| **pkg/inference** | 89.4% |
+| **pkg/router** | 90.3% |
+| **pkg/inference** | 90.7% |
 | **pkg/generator** | 88.9% |
-| **pkg/value** | 100.0% |
 
 ## 吞吐量基线（2026-07-18，Phase 2）
 
