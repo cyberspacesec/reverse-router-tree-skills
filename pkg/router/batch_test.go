@@ -107,6 +107,29 @@ func TestReverseRequests_RawTruncated(t *testing.T) {
 	}
 }
 
+// TestReverseCurls_AppendBatchErrorTruncated 验证超长 Raw 被截断并追加 "...(truncated)" 后缀。
+func TestReverseCurls_AppendBatchErrorTruncated(t *testing.T) {
+	r := NewReverseRouter()
+	// 构造一条解析失败的超长 curl
+	curls := []string{
+		"not-a-curl-command" + strings.Repeat("x", 200),
+	}
+	result := r.ReverseCurls(curls)
+	if result.Failed != 1 {
+		t.Fatalf("Failed = %d, want 1", result.Failed)
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("Errors len = %d, want 1", len(result.Errors))
+	}
+	raw := result.Errors[0].Raw
+	if len(raw) > 128+len("...(truncated)") {
+		t.Errorf("Raw 截断后过长: %d 字节", len(raw))
+	}
+	if !strings.HasSuffix(raw, "...(truncated)") {
+		t.Errorf("Raw 尾部应为 ...(truncated)，实际 %q", raw)
+	}
+}
+
 // TestReverseRequests_Empty 验证空输入不 panic、返回空结果。
 func TestReverseRequests_Empty(t *testing.T) {
 	r := NewReverseRouter()
