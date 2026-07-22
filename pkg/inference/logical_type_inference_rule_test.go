@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
@@ -924,5 +925,30 @@ func TestIsDecimalLike(t *testing.T) {
 		if got := isDecimalLike(c.val); got != c.want {
 			t.Errorf("isDecimalLike(%q) = %v, want %v", c.val, got, c.want)
 		}
+	}
+}
+
+// TestIsEnumLike_LongValueTriggers 覆盖 isEnumLike 超长值提前终止分支。
+// 构造 uniqueCount=2, totalCount=10, ratio=0.2<=0.3 进入循环，
+// 超长值（>50 字符）触发 longValues=true 提前终止。
+func TestIsEnumLike_LongValueTriggers(t *testing.T) {
+	rule := NewLogicalTypeInferenceRule()
+	pathVarNode := node.NewRequestPathVariableNode("id", "")
+	// 5 次短值 + 5 次超长值（51字符），uniqueCount=2, totalCount=10, ratio=0.2
+	for range 5 {
+		pathVarNode.ObserveValue("a") // 短值，不匹配结构化模式
+	}
+	longVal := "x" + strings.Repeat("x", 50) // 51 字符
+	for range 5 {
+		pathVarNode.ObserveValue(longVal)
+	}
+	// Infer 走 matchStructuredPatterns→matchNumericPatterns→isEnumLike
+	// isEnumLike 因超长值提前终止返回 false，Infer 最终回退到 LogicalTypeString
+	typ, err := rule.Infer(pathVarNode)
+	if err != nil {
+		t.Fatalf("Infer 不应报错: %v", err)
+	}
+	if typ != value.Type(value.LogicalTypeString) {
+		t.Errorf("超长枚举值场景类型 = %q, want string（因超长值回退）", typ)
 	}
 }

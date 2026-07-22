@@ -45,3 +45,19 @@ func TestInferPhysicalAndLogical_EmptyMetric(t *testing.T) {
 		t.Errorf("空 metric 逻辑类型 = %q, want string", lt)
 	}
 }
+
+// TestChainInfer_FallbackToString 覆盖所有规则返回空类型时回退到 string 的分支。
+// ChainTypeInferenceRule.Infer 在所有规则返回空类型时，lastType 为空，
+// 应回退到 value.Type(value.PhysicalTypeString)。
+func TestChainInfer_FallbackToString(t *testing.T) {
+	// 空规则链：无任何规则，Infer 直接回退到 string
+	chain := NewChainTypeInferenceRuleWithRules()
+	pathVarNode := node.NewRequestPathVariableNode("id", "")
+	typ, err := chain.Infer(pathVarNode)
+	if err != nil {
+		t.Fatalf("空链 Infer 不应报错: %v", err)
+	}
+	if typ != value.Type(value.PhysicalTypeString) {
+		t.Errorf("空链回退类型 = %q, want string", typ)
+	}
+}
