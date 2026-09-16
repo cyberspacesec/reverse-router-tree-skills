@@ -12,10 +12,21 @@ type HttpRequest struct {
 	Method string
 	// 请求体内容
 	Body []byte
+	// 目标主机（host[:port]）。可为空——为空时路由侧按需从 Url 提取。
+	// 用于网络空间测绘的多目标隔离：不同 host 各自独立还原路由树。
+	Host string
 }
 
 func NewHttpRequest(url string, headers Headers, method string, body []byte) *HttpRequest {
 	return &HttpRequest{Url: url, Headers: headers, Method: method, Body: body}
+}
+
+func (x *HttpRequest) GetHost() string {
+	return x.Host
+}
+
+func (x *HttpRequest) SetHost(host string) {
+	x.Host = host
 }
 
 func (x *HttpRequest) GetUrl() string {

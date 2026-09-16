@@ -217,12 +217,13 @@ type RouteNodeJSON struct {
 	InferredType string `json:"inferred_type,omitempty"`
 	Pattern      string `json:"pattern,omitempty"`
 	// 参数特有字段
-	Required       *bool  `json:"required,omitempty"`
-	PhysicalType   string `json:"physical_type,omitempty"`
-	LogicalType    string `json:"logical_type,omitempty"`
-	PresenceCount  int64  `json:"presence_count,omitempty"`
-	DefaultValue   string `json:"default_value,omitempty"`
-	MultiValue     bool   `json:"multi_value,omitempty"`
+	Required      *bool          `json:"required,omitempty"`
+	PhysicalType  string         `json:"physical_type,omitempty"`
+	LogicalType   string         `json:"logical_type,omitempty"`
+	PresenceCount int64          `json:"presence_count,omitempty"`
+	DefaultValue  string         `json:"default_value,omitempty"`
+	MultiValue    bool           `json:"multi_value,omitempty"`
+	ValueCounts   map[string]int `json:"value_counts,omitempty"`
 }
 
 // ToJSON 将路由树导出为JSON格式
@@ -264,6 +265,16 @@ func (x *Tree) nodeToJSON(n node.Node[node.NodeContext]) *RouteNodeJSON {
 		result.PresenceCount = paramNode.GetPresenceCount()
 		result.DefaultValue = paramNode.GetDefaultValue()
 		result.MultiValue = paramNode.IsMultiValue()
+		result.ValueCounts = paramNode.GetValueMetric().GetAllValues()
+	}
+	if pathVarNode, ok := n.(*node.RequestPathVariableNode); ok {
+		result.ValueCounts = pathVarNode.GetValueMetric().GetAllValues()
+	}
+	if headerValueNode, ok := n.(*node.RequestHeaderValueNode); ok {
+		result.ValueCounts = headerValueNode.GetValueMetric().GetAllValues()
+	}
+	if cookieValueNode, ok := n.(*node.RequestCookieValueNode); ok {
+		result.ValueCounts = cookieValueNode.GetValueMetric().GetAllValues()
 	}
 
 	// 递归处理子节点
@@ -339,6 +350,9 @@ func (x *Tree) jsonToNode(jn *RouteNodeJSON) node.Node[node.NodeContext] {
 		if jn.PresenceCount > 0 {
 			paramNode.SetPresenceCount(jn.PresenceCount)
 		}
+		if jn.ValueCounts != nil {
+			paramNode.GetValueMetric().RestoreCounts(jn.ValueCounts)
+		}
 		n = paramNode
 	case "request_header":
 		n = node.NewRequestHeaderNode(jn.Key)
@@ -350,6 +364,17 @@ func (x *Tree) jsonToNode(jn *RouteNodeJSON) node.Node[node.NodeContext] {
 		n = node.NewRequestCookieValueNode(jn.Value, jn.Key)
 	default:
 		n = node.NewBaseNode[node.NodeContext](jn.Type, jn.Key, jn.Value, context)
+	}
+
+	if jn.ValueCounts != nil {
+		switch typed := n.(type) {
+		case *node.RequestPathVariableNode:
+			typed.GetValueMetric().RestoreCounts(jn.ValueCounts)
+		case *node.RequestHeaderValueNode:
+			typed.GetValueMetric().RestoreCounts(jn.ValueCounts)
+		case *node.RequestCookieValueNode:
+			typed.GetValueMetric().RestoreCounts(jn.ValueCounts)
+		}
 	}
 
 	// 递归处理子节点
@@ -369,19 +394,19 @@ func (x *Tree) jsonToNode(jn *RouteNodeJSON) node.Node[node.NodeContext] {
 
 // RouteStats 路由树统计信息
 type RouteStats struct {
-	TotalNodes          int `json:"total_nodes"`
-	PathNodes           int `json:"path_nodes"`
-	PathVariableNodes   int `json:"path_variable_nodes"`
-	MethodNodes         int `json:"method_nodes"`
-	ContentTypeNodes    int `json:"content_type_nodes"`
-	ParamNodes          int `json:"param_nodes"`
-	MaxDepth            int `json:"max_depth"`
-	LeafNodes           int `json:"leaf_nodes"`
-	HeaderNodes         int   `json:"header_nodes"`
-	HeaderValueNodes    int   `json:"header_value_nodes"`
-	CookieNodes         int   `json:"cookie_nodes"`
-	CookieValueNodes    int   `json:"cookie_value_nodes"`
-	TotalRequestCount   int64 `json:"total_request_count"`
+	TotalNodes        int   `json:"total_nodes"`
+	PathNodes         int   `json:"path_nodes"`
+	PathVariableNodes int   `json:"path_variable_nodes"`
+	MethodNodes       int   `json:"method_nodes"`
+	ContentTypeNodes  int   `json:"content_type_nodes"`
+	ParamNodes        int   `json:"param_nodes"`
+	MaxDepth          int   `json:"max_depth"`
+	LeafNodes         int   `json:"leaf_nodes"`
+	HeaderNodes       int   `json:"header_nodes"`
+	HeaderValueNodes  int   `json:"header_value_nodes"`
+	CookieNodes       int   `json:"cookie_nodes"`
+	CookieValueNodes  int   `json:"cookie_value_nodes"`
+	TotalRequestCount int64 `json:"total_request_count"`
 }
 
 // Stats 获取路由树的统计信息

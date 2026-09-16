@@ -77,6 +77,19 @@ func (v *ValueMetric) ForEachValue(fn func(val string, count int) bool) {
 	}
 }
 
+// RestoreCounts 将快照恢复到度量对象，替换已有计数。
+// 输入会被复制，调用方后续修改不会影响度量对象。
+func (v *ValueMetric) RestoreCounts(counts map[string]int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.valueMap = make(map[string]int, len(counts))
+	for val, count := range counts {
+		if count > 0 {
+			v.valueMap[val] = count
+		}
+	}
+}
+
 // GetUniqueValueCount 获取不同值的数量
 func (v *ValueMetric) GetUniqueValueCount() int {
 	v.mu.RLock()

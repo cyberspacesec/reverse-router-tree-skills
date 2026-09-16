@@ -125,11 +125,18 @@ func (x *ReverseRouter) SetMergeConfig(config MergeConfig) {
 	if config.PatternSimilarityThreshold > 1.0 {
 		config.PatternSimilarityThreshold = 1.0
 	}
+	// mergeConfig 的读写均用 mergeMu 串行化：合并临界区（checkAndMergeSiblingsLocked
+	// 及内部）已在 mergeMu 下读 mergeConfig；此处写与 GetMergeConfig/InferRequiredParams
+	// 的读也加锁，避免 RouterSet 配置传播与并发喂入产生数据竞争（-race）。
+	x.mergeMu.Lock()
 	x.mergeConfig = config
+	x.mergeMu.Unlock()
 }
 
 // GetMergeConfig 获取合并策略配置
 func (x *ReverseRouter) GetMergeConfig() MergeConfig {
+	x.mergeMu.Lock()
+	defer x.mergeMu.Unlock()
 	return x.mergeConfig
 }
 
@@ -365,6 +372,14 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 	// 检查是否需要合并兄弟节点为路径变量（已在 mergeMu 临界区内）
 	x.checkAndMergeSiblingsLocked(parent)
 
+	// 合并可能已将 newPathNode 从 parent 中移除，并生成了路径变量节点。
+	// 若如此，继续路径处理应在路径变量节点下进行，否则后续节点会被挂到游离子树。
+	if pv := parent.GetChildByType("request_path_variable"); pv != nil {
+		pathVarNode := pv.(*node.RequestPathVariableNode)
+		if pathVarNode.IsMatch(pathSegment) {
+			return pathVarNode, nil
+		}
+	}
 	return newPathNode, nil
 }
 
@@ -516,8 +531,9 @@ func NewPatternDetector() *PatternDetector {
 			// 6位纯数字无法与普通数字ID、验证码、订单号等可靠区分，
 			// 误判率太高。6位数字会回退到 integer 模式，生成更合理的 {xxx_id} 变量名。
 			// 通用格式（最后匹配）
-			regexp.MustCompile(`^[0-9]+\.[0-9]+$`), // 浮点数
-			regexp.MustCompile(`^[0-9]+$`),         // 纯数字
+			regexp.MustCompile(`^[0-9]+\.[0-9]+$`),  // 浮点数
+			regexp.MustCompile(`^[0-9]+$`),          // 纯数字
+			regexp.MustCompile(`^[0-9a-fA-F]{8,}$`), // hex 字符串 ID（MongoDB ObjectId/MD5/SHA 等）
 		},
 		names: []string{
 			"uuid",
@@ -532,6 +548,7 @@ func NewPatternDetector() *PatternDetector {
 			"alphanumeric",
 			"float",
 			"integer",
+			"hex_id",
 		},
 	}
 }
@@ -654,12 +671,32 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 	parent.AddChild(varNode)
 	x.stats.PathVariablesIdentified.Add(1)
 	x.logger.Info("识别路径变量", "parent", parent.GetKey(), "var_name", varName, "pattern", patternName, "physical_type", varNode.GetValueType(), "logical_type", varNode.GetLogicalType(), "merged_count", len(children))
+
+	// 级联合并：varNode 汇聚了多个兄弟节点的孙子节点，可能形成新的可合并组。
+	// 例如 users/1/2/3 合并后，posts 下的 10/20/30 已就绪但尚未触发合并检查。
+	x.cascadeMergeLocked(varNode)
+}
+
+// cascadeMergeLocked 对新生成的路径变量节点做向下级联合并。
+// 将 varNode 的每个 request_path 子节点递归执行合并检查，
+// 确保因父层合并而聚合的孙节点也能被正确合并为路径变量。
+// 调用方必须持有 mergeMu 锁。
+func (x *ReverseRouter) cascadeMergeLocked(varNode node.Node[node.NodeContext]) {
+	for _, child := range varNode.GetChildren() {
+		switch child.GetType() {
+		case "request_path":
+			x.checkAndMergeSiblingsLocked(child)
+			x.cascadeMergeLocked(child)
+		case "request_path_variable":
+			x.cascadeMergeLocked(child)
+		}
+	}
 }
 
 // inferVariableName 根据父节点和模式推断变量名
 func inferVariableName(parentKey string, patternName string) string {
 	switch patternName {
-	case "integer":
+	case "integer", "hex_id":
 		return parentKey + "_id"
 	case "uuid":
 		return parentKey + "_uuid"
@@ -716,6 +753,8 @@ func inferPatternRegex(patternName string) string {
 	switch patternName {
 	case "integer":
 		return "[0-9]+"
+	case "hex_id":
+		return "[0-9a-fA-F]+"
 	case "uuid":
 		return "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 	case "float":
@@ -809,8 +848,19 @@ func (x *ReverseRouter) findOrCreateMethodNode(parent node.Node[node.NodeContext
 
 // processParams 处理查询参数
 func (x *ReverseRouter) processParams(methodNode node.Node[node.NodeContext], params []*request.HttpParam) error {
+	// 同一请求内同名参数出现多次（如 ?tag=a&tag=b）→ 多值参数。
+	// 先统计，再逐条下发，避免多值信息在单个 HttpParam 内丢失。
+	multi := make(map[string]bool, len(params))
+	seen := make(map[string]int, len(params))
+	for _, p := range params {
+		name := strings.ToLower(p.Name)
+		seen[name]++
+		if seen[name] > 1 {
+			multi[name] = true
+		}
+	}
 	for _, param := range params {
-		if err := x.findOrCreateParamNode(methodNode, param); err != nil {
+		if err := x.findOrCreateParamNode(methodNode, param, multi[strings.ToLower(param.Name)]); err != nil {
 			return err
 		}
 	}
@@ -819,13 +869,16 @@ func (x *ReverseRouter) processParams(methodNode node.Node[node.NodeContext], pa
 
 // findOrCreateParamNode 在方法节点下查找或创建参数节点
 // 支持多值参数检测和类型推断
-func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeContext], param *request.HttpParam) error {
+func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeContext], param *request.HttpParam, multiValue bool) error {
 	// 参数名统一小写
 	paramName := strings.ToLower(param.Name)
 
 	paramChild := methodNode.FindChildByKey(paramName)
 	if paramChild != nil && paramChild.GetType() == "request_param" {
 		paramNode := paramChild.(*node.RequestParamNode)
+		if multiValue {
+			paramNode.SetMultiValue(true)
+		}
 		// 累加参数出现次数（用于必需性推断）
 		paramNode.IncrementPresenceCount()
 		// 观察参数值用于类型推断
@@ -852,6 +905,9 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 	}
 
 	newParamNode := node.NewRequestParamNode(paramName, param.Value, false)
+	if multiValue {
+		newParamNode.SetMultiValue(true)
+	}
 	// 新参数首次出现，presenceCount 设为 1
 	newParamNode.IncrementPresenceCount()
 
@@ -904,7 +960,9 @@ func (x *ReverseRouter) InferRequiredParams() int {
 		return 0
 	}
 
+	x.mergeMu.Lock()
 	threshold := x.mergeConfig.RequiredParamThreshold
+	x.mergeMu.Unlock()
 	if threshold <= 0 {
 		threshold = 0.9
 	}
@@ -1035,6 +1093,136 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 	}
 
 	return true
+}
+
+// NormalizedRoute 是一条流量归一化后的路由资产。
+// AssetKey 由 HTTP 方法和路径模板组成，保证不同方法不会被误合并。
+type NormalizedRoute struct {
+	Host           string
+	Method         string
+	Template       string
+	PathParams     []string
+	QueryParams    []string
+	RequiredParams []string
+}
+
+// AssetKey 返回适合作为测绘资产唯一键的稳定标识。
+func (r NormalizedRoute) AssetKey() string {
+	if r.Method == "" {
+		return r.Template
+	}
+	return r.Method + " " + r.Template
+}
+
+// HostAssetKey 返回包含目标 Host 的多目标资产唯一键。
+// 空 Host 使用 "<unknown>"，避免与方法字段产生歧义并保持键格式稳定。
+func (r NormalizedRoute) HostAssetKey() string {
+	host := r.Host
+	if host == "" {
+		host = "<unknown>"
+	}
+	key := r.AssetKey()
+	if key == "" {
+		return host
+	}
+	return host + " " + key
+}
+
+// normalizePathSegments 沿已构建的路由树逐段定位，并同时生成路径模板。
+// 匹配语义与 RequestPathRouter.FindNode 保持一致：固定路径优先，未命中时回退路径变量。
+func (x *ReverseRouter) normalizePathSegments(paths []*request.HttpRequestPath) (node.Node[node.NodeContext], []string, []string, bool) {
+	current := node.Node[node.NodeContext](x.Tree.Root)
+	segments := make([]string, 0, len(paths))
+	pathParams := make([]string, 0)
+	for _, path := range paths {
+		if path == nil || path.Path == "" {
+			continue
+		}
+		child := current.FindChildByKey(path.Path)
+		if child != nil {
+			current = child
+			segments = append(segments, path.Path)
+			continue
+		}
+		pathVar := current.GetChildByType("request_path_variable")
+		if pathVar == nil {
+			return nil, nil, nil, false
+		}
+		current = pathVar
+		name := pathVar.GetKey()
+		segments = append(segments, "{"+name+"}")
+		pathParams = append(pathParams, name)
+	}
+	return current, segments, pathParams, true
+}
+
+// NormalizeURL 将一条已采集请求归一化为方法+路径模板资产。
+// 请求必须已经被 ReverseHttpRequest 收录；未命中已知路由时返回 false。
+func (x *ReverseRouter) NormalizeURL(req *request.HttpRequest) (NormalizedRoute, bool) {
+	if req == nil || x == nil || x.Tree == nil || x.Tree.Root == nil {
+		return NormalizedRoute{}, false
+	}
+	paths, _, err := request.NewUrlParser(req.Url).Parse()
+	if err != nil {
+		return NormalizedRoute{}, false
+	}
+	defer request.ReleasePaths(paths)
+
+	method := strings.ToUpper(req.Method)
+	if method == "" {
+		method = "GET"
+	}
+	pathEnd, parts, pathParams, ok := x.normalizePathSegments(paths)
+	if !ok {
+		return NormalizedRoute{}, false
+	}
+	methodNode := pathEnd.FindChildByKey(method)
+	if methodNode == nil || methodNode.GetType() != "request_method" {
+		return NormalizedRoute{}, false
+	}
+
+	result := NormalizedRoute{
+		Host:           req.Host,
+		Method:         method,
+		Template:       "/" + strings.Join(parts, "/"),
+		PathParams:     pathParams,
+		QueryParams:    make([]string, 0),
+		RequiredParams: make([]string, 0),
+	}
+	if strings.TrimSpace(result.Host) == "" {
+		result.Host = request.ExtractHost(req.Url)
+	}
+	if result.Template == "/" && len(parts) == 0 {
+		result.Template = "/"
+	}
+	for _, child := range methodNode.GetChildren() {
+		if child.GetType() != "request_param" {
+			continue
+		}
+		param, ok := child.(*node.RequestParamNode)
+		if !ok {
+			continue
+		}
+		name := param.GetParamName()
+		result.QueryParams = append(result.QueryParams, name)
+		if param.IsRequired() {
+			result.RequiredParams = append(result.RequiredParams, name)
+		}
+	}
+	return result, true
+}
+
+// NormalizeURLs 批量将请求归入方法+模板资产键。
+func (x *ReverseRouter) NormalizeURLs(reqs []*request.HttpRequest) map[string][]string {
+	result := make(map[string][]string)
+	for _, req := range reqs {
+		normalized, ok := x.NormalizeURL(req)
+		if !ok {
+			continue
+		}
+		result[normalized.AssetKey()] = append(result[normalized.AssetKey()], req.Url)
+	}
+	return result
 }
 
 // FindRouteNode 在已构建的路由树中查找给定请求会命中的"方法节点"

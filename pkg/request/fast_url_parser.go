@@ -2,6 +2,31 @@ package request
 
 import "strings"
 
+// ExtractHost 从完整 URL 或 scheme-relative URL 中提取 host[:port]。
+// 纯路径、相对路径以及无法识别 authority 的输入返回空字符串。
+func ExtractHost(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	authorityStart := -1
+	if schemeEnd := strings.Index(raw, "://"); schemeEnd > 0 {
+		authorityStart = schemeEnd + 3
+	} else if strings.HasPrefix(raw, "//") {
+		authorityStart = 2
+	}
+	if authorityStart < 0 || authorityStart >= len(raw) {
+		return ""
+	}
+
+	rest := raw[authorityStart:]
+	end := len(rest)
+	if i := strings.IndexAny(rest, "/?"); i >= 0 {
+		end = i
+	}
+	return rest[:end]
+}
+
 // fastParseURLPathAndQuery 轻量解析 URL，仅提取 path 与 query，避开 net/url.Parse 的全功能开销。
 //
 // 行为对齐 net/url 的 path/query 提取（但不构造 *url.URL 结构体，不解析 scheme/host 细节）：
@@ -76,6 +101,12 @@ func fastParseURLPathAndQuery(raw string) (pathStr, queryStr string, err error) 
 			sepPos = authStart + qIdx
 		}
 		rest = raw[sepPos:]
+	}
+
+	// fragment 不进 path 也不进 query（对齐 net/url：从首个 # 截断，仅供客户端定位）。
+	// 必须先于 path/query 分离处理，否则 "#frag" 会被当成伪查询参数。
+	if hIdx := strings.IndexByte(rest, '#'); hIdx >= 0 {
+		rest = rest[:hIdx]
 	}
 
 	// 此时 rest 形如 "/path?query" 或 "?query" 或 "/path" 或 ""

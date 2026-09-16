@@ -701,8 +701,8 @@ func (n *BaseNode[Context]) MergeWith(other Node[Context]) error {
 			continue
 		}
 
-		// 否则添加克隆的子节点
-		childClone := child.Clone()
+		// 使用深克隆保留完整子树，避免孙子节点丢失
+		childClone := child.DeepClone()
 		if err := n.AddChild(childClone); err != nil {
 			return fmt.Errorf("合并子节点失败: %w", err)
 		}

@@ -539,11 +539,11 @@ func TestOpenAPIExport_UnknownAuthFallsBackToHeader(t *testing.T) {
 // TestBuildSchema_LogicalTypeBranches 覆盖逻辑类型→schema 的所有分支。
 func TestBuildSchema_LogicalTypeBranches(t *testing.T) {
 	cases := []struct {
-		name        string
-		physical    string
-		logical     string
-		wantType    string
-		wantFormat  string
+		name       string
+		physical   string
+		logical    string
+		wantType   string
+		wantFormat string
 	}{
 		{"integer逻辑", "", "integer", "integer", ""},
 		{"int逻辑", "", "int", "integer", ""},
@@ -669,11 +669,11 @@ func TestSanitizeOperationID(t *testing.T) {
 		in, want string
 	}{
 		{"/api/users/{id}/detail", "api_users_id_detail"}, // 斜杠→_，{}去除
-		{"api__users", "api_users"},                        // 连续下划线合并
-		{"___", "root"},                                    // 全下划线→空→root
-		{"用户/路径", "root"},                               // 非ASCII全转_后Trim为空→root
-		{"GET", "GET"},                                     // 纯字母保留
-		{"a-b-c", "a_b_c"},                                 // 连字符→_
+		{"api__users", "api_users"},                       // 连续下划线合并
+		{"___", "root"},                                   // 全下划线→空→root
+		{"用户/路径", "root"},                                 // 非ASCII全转_后Trim为空→root
+		{"GET", "GET"},                                    // 纯字母保留
+		{"a-b-c", "a_b_c"},                                // 连字符→_
 	}
 	for _, c := range cases {
 		if got := sanitizeOperationID(c.in); got != c.want {
@@ -710,8 +710,8 @@ func TestSecuritySchemeFromAuth(t *testing.T) {
 // 与 IncludeOptionalParameters=false 跳过可选参数分支。
 func TestBuildRequestBody_CharsetAndOptional(t *testing.T) {
 	// 带可选参数 + charset Content-Type
-	reqParam := node.NewRequestParamNode("opt", "", false)   // 可选
-	reqParam2 := node.NewRequestParamNode("req", "", true)    // 必需
+	reqParam := node.NewRequestParamNode("opt", "", false) // 可选
+	reqParam2 := node.NewRequestParamNode("req", "", true) // 必需
 	ep := &endpoint{
 		contentType: "application/json; charset=utf-8",
 		bodyParams:  []*node.RequestParamNode{reqParam, reqParam2},
@@ -751,4 +751,32 @@ func keysOfMap(m map[string]openAPIMediaType) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+// TestExportHexIdPathVariable 验证 hex_id 模式路径变量正确导出为 OpenAPI 参数
+func TestExportHexIdPathVariable(t *testing.T) {
+	r := router.NewReverseRouter()
+	for _, oid := range []string{
+		"507f1f77bcf86cd799439011",
+		"507f191e810c19729de860ea",
+		"5099803df3f4948bd2f98391",
+	} {
+		r.ReverseHttpRequest(request.NewHttpRequest("/api/documents/"+oid, nil, "GET", nil))
+	}
+	exp := NewOpenAPIExporter()
+	data, err := exp.Export(r.Tree)
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+	doc := parseDoc(t, data)
+	docPaths := getPaths(t, doc)
+	found := false
+	for pathStr := range docPaths {
+		if strings.Contains(pathStr, "documents") && strings.Contains(pathStr, "{") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("hex_id 路径变量应导出为 OpenAPI path parameter，paths: %v", docPaths)
+	}
 }

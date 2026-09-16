@@ -8,7 +8,10 @@
 
 给一组抓到的 HTTP 请求，还你一棵还原好的路由树——识别路径变量、查询参数、Content-Type/Header/Cookie 路由维度，推断参数的物理与逻辑类型，最终导出成"黑盒版 Swagger"。
 
-## 为什么需要
+## 核心目标：网络空间测绘 URL 资产归一化
+
+本项目唯一的核心目标，是服务网络安全空间测绘：从抓包流量中尽可能还原每个目标应用的路由树，将同一接口的不同 URL 归一化为稳定的路由模板，支撑 URL 资产去重、聚合、检索和后续查询参数规范化。OpenAPI 导出、类型推断等能力都服务于这个目标，而不是独立的终点。
+
 
 爬虫把 `/api/users/123` 和 `/api/users/456` 当成两个 URL 请求两遍；安全扫描器对同一接口重复测试。本项目把这些散落的 URL **还原成目标服务器真实的路由结构**：
 
@@ -28,7 +31,9 @@ POST /api/users (json)     ──▶  requestBody: name, age
 - **多维度路由**：Content-Type / Header（Accept 等）/ Cookie 作为子路由维度
 - **两层类型推断**：物理类型（integer/string/...）+ 逻辑类型（uuid/phone/idcard/...）
 - **必需参数推断**：基于出现频率，阈值可配
-- **路由查询**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询请求命中的路由节点
+- **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点，`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
+- **多目标 Host 隔离**：`RouterSet` 按 host 分桶，每个目标应用独立还原路由树，避免跨目标污染；`HostAssetKey` 用于跨目标资产清单
+- **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断
 - **OpenAPI 3.0.3 导出**：路径/参数/请求体/安全方案（从 Authorization 推断 Bearer/Basic/Digest）
 - **并发安全**：`-race` 全量测试通过，多 goroutine 并发喂数据安全
 - **可观测性**：结构化日志（slog）+ 11 项 atomic 统计指标
@@ -90,7 +95,7 @@ func main() {
 
 | 包 | 职责 |
 |---|---|
-| `pkg/router` | `ReverseRouter` 主入口，9 步逆向流程，合并策略，自定义合并规则 |
+| `pkg/router` | `ReverseRouter` 主入口、`RouterSet` 多目标 Host 分桶，9 步逆向流程，归一化 API，合并策略，自定义合并规则 |
 | `pkg/request` | `HttpRequest` / `Headers` / `UrlParser` / `BodyParser` |
 | `pkg/node` | 路径/参数/变量/方法/Content-Type/Header/Cookie 节点，`BaseNode` 通用树 |
 | `pkg/tree` | `Tree` 容器，JSON 序列化/反序列化（类型信息往返一致） |

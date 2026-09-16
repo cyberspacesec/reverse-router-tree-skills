@@ -4,7 +4,7 @@ layout: home
 hero:
   name: reverse-router-tree
   text: 从黑盒流量逆向还原 Web 路由树
-  tagline: 纯黑盒 · 自动识别路径变量与参数模式 · 导出 OpenAPI · 一个网络空间测绘教学项目
+  tagline: 面向网络安全空间测绘的 URL 资产归一化引擎 · 纯黑盒 · 自动识别路径变量与参数模式 · 导出 OpenAPI
   actions:
     - theme: brand
       text: 从这里开始 →
@@ -29,6 +29,9 @@ features:
   - title: 多维度路由
     details: 不仅是路径，查询参数、Content-Type、Header、Cookie 都是路由维度，全部纳入树结构。
     icon: 🌳
+  - title: 多目标资产归一化
+    details: RouterSet 按 Host 隔离路由树，NormalizeAssets 输出 Host + 方法 + 模板资产键；JSON 续喂保留值样本统计。
+    icon: 🌐
   - title: 类型推断
     details: 物理类型（integer/float/string）+ 逻辑类型（phone/email/uuid/date），两层推断协同。
     icon: 🔍
