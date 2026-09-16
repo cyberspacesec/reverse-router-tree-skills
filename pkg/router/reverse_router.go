@@ -52,6 +52,10 @@ type ReverseRouter struct {
 	inferenceRule inference.TypeInferenceRule
 	chainRule     *inference.ChainTypeInferenceRule
 	mergeConfig   MergeConfig
+	// limits/redact 用 atomic.Pointer 持有：命中快路径（无锁）可直接 Load，
+	// Set 系方法 Store 新指针。无锁、-race 安全，配置变更低频。
+	limits ResourceLimitsHolder
+	redact RedactHolder
 	// mergeRule 可选的自定义合并规则。nil 时走内置 findMergeableSiblings 逻辑。
 	// 读写均由 mergeMu 保护（与合并临界区同锁），SetMergeRule/GetMergeRule
 	// 持 mergeMu，findMergeableSiblings 在 checkAndMergeSiblings 临界区内直接读字段。
@@ -76,7 +80,7 @@ type ReverseRouter struct {
 // NewReverseRouter 创建一个新的逆向路由器（使用默认配置）
 func NewReverseRouter() *ReverseRouter {
 	chainRule := inference.NewChainTypeInferenceRule()
-	return &ReverseRouter{
+	r := &ReverseRouter{
 		Tree:          tree.NewTree(),
 		inferenceRule: chainRule,
 		chainRule:     chainRule,
@@ -88,12 +92,15 @@ func NewReverseRouter() *ReverseRouter {
 		paramRouter:   &RequestParamRouter{},
 		ctRouter:      &RequestContentTypeRouter{},
 	}
+	r.limits.StoreLimits(DefaultResourceLimits)
+	r.redact.StoreRedact(DefaultRedactConfig())
+	return r
 }
 
 // NewReverseRouterWithTree 使用已有的路由树创建逆向路由器
 func NewReverseRouterWithTree(t *tree.Tree) *ReverseRouter {
 	chainRule := inference.NewChainTypeInferenceRule()
-	return &ReverseRouter{
+	r := &ReverseRouter{
 		Tree:          t,
 		inferenceRule: chainRule,
 		chainRule:     chainRule,
@@ -105,6 +112,9 @@ func NewReverseRouterWithTree(t *tree.Tree) *ReverseRouter {
 		paramRouter:   &RequestParamRouter{},
 		ctRouter:      &RequestContentTypeRouter{},
 	}
+	r.limits.StoreLimits(DefaultResourceLimits)
+	r.redact.StoreRedact(DefaultRedactConfig())
+	return r
 }
 
 // SetInferenceRule 设置类型推断规则
@@ -138,6 +148,61 @@ func (x *ReverseRouter) GetMergeConfig() MergeConfig {
 	x.mergeMu.Lock()
 	defer x.mergeMu.Unlock()
 	return x.mergeConfig
+}
+
+// SetResourceLimits 设置资源上限（0 表示对应项不限制）。
+// atomic 无锁写入，并发喂入侧直接 Load，无 -race 风险。
+func (x *ReverseRouter) SetResourceLimits(limits ResourceLimits) {
+	x.limits.StoreLimits(limits)
+}
+
+// GetResourceLimits 获取当前资源上限。
+func (x *ReverseRouter) GetResourceLimits() ResourceLimits {
+	return x.limits.LoadLimits()
+}
+
+// SetRedactConfig 设置敏感数据脱敏名单（参数/cookie 名大小写不敏感）。
+// 命中名单的值只建占位节点，不存原值；nil/空名单表示关闭对应维度脱敏。
+func (x *ReverseRouter) SetRedactConfig(cfg RedactConfig) {
+	x.redact.StoreRedact(cfg)
+}
+
+// applyMetricCap 给值节点的 ValueMetric 设置上限（node 层统一入口）。
+// maxUnique <= 0 时不设（保持无限制）。
+func (x *ReverseRouter) applyMetricCap(m interface {
+	SetMaxUnique(int, string)
+}) {
+	if m == nil {
+		return
+	}
+	if maxUnique := x.limits.LoadLimits().MaxValuesPerMetric; maxUnique > 0 {
+		m.SetMaxUnique(maxUnique, CappedMetricKey)
+	}
+}
+
+// childrenGuard 检查父节点子节点数是否已达上限。
+// 命中已存在节点不走此检查（纯查询无增长）；仅新建子节点前调用。
+// 返回 nil 表示允许创建，非 nil 为 fail-soft 错误（调用方计 Errors 并返回）。
+func (x *ReverseRouter) childrenGuard(parent node.Node[node.NodeContext]) error {
+	maxChildren := x.limits.LoadLimits().MaxChildrenPerNode
+	if maxChildren <= 0 {
+		return nil
+	}
+	if parent.GetChildCount() >= maxChildren {
+		x.stats.Warnings.Add(1)
+		return fmt.Errorf("父节点 '%s' 子节点数达上限 %d，拒绝新建", parent.GetKey(), maxChildren)
+	}
+	return nil
+}
+
+// truncateSegment 按 MaxSegmentLen 截断超长路径段（0 表示不限制）。
+func (x *ReverseRouter) truncateSegment(seg string) string {
+	maxLen := x.limits.LoadLimits().MaxSegmentLen
+	if maxLen > 0 && len(seg) > maxLen {
+		x.stats.Warnings.Add(1)
+		return seg[:maxLen]
+	}
+	return seg
 }
 
 // SetLogger 设置自定义日志器。传入 nil 关闭日志。
@@ -298,6 +363,9 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 		return parent, nil
 	}
 
+	// 生产护栏：超长路径段截断（防恶意超长 URL 撑爆内存/日志）
+	pathSegment = x.truncateSegment(pathSegment)
+
 	// 首先尝试精确匹配路径节点
 	child := parent.FindChildByKey(pathSegment)
 	if child != nil && child.GetType() == "request_path" {
@@ -364,6 +432,10 @@ func (x *ReverseRouter) findOrCreatePathNode(parent node.Node[node.NodeContext],
 		}
 	}
 
+	// 生产护栏：子节点数上限（防高基数路径段撑爆单父节点）
+	if err := x.childrenGuard(parent); err != nil {
+		return nil, err
+	}
 	newPathNode := node.NewRequestPathNode(pathSegment)
 	if err := parent.AddChild(newPathNode); err != nil {
 		return nil, fmt.Errorf("添加路径节点失败: %w", err)
@@ -637,6 +709,8 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 
 	// 创建路径变量节点
 	varNode := node.NewRequestPathVariableNode(varName, patternStr)
+	// 生产护栏：ValueMetric 上限（防高基数字段撑爆内存）
+	x.applyMetricCap(varNode.GetValueMetric())
 
 	// 收集所有观察到的值并合并子树
 	for _, child := range children {
@@ -838,6 +912,10 @@ func (x *ReverseRouter) findOrCreateMethodNode(parent node.Node[node.NodeContext
 		return methodChild, nil
 	}
 
+	// 生产护栏：子节点数上限
+	if err := x.childrenGuard(parent); err != nil {
+		return nil, err
+	}
 	newMethodNode := node.NewRequestMethodNode(method)
 	if err := parent.AddChild(newMethodNode); err != nil {
 		return nil, fmt.Errorf("添加方法节点失败: %w", err)
@@ -881,15 +959,21 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 		}
 		// 累加参数出现次数（用于必需性推断）
 		paramNode.IncrementPresenceCount()
-		// 观察参数值用于类型推断
-		if param.Value != "" {
-			paramNode.ObserveValue(param.Value)
+		// 脱敏参数只记结构：不存原值（Metric/类型推断/日志都跳过）。
+		redacted := x.redact.IsParamRedacted(paramName)
+		storedValue := param.Value
+		if redacted {
+			storedValue = ""
 		}
-		paramNode.GetContext().SetKey(paramName, param.Value)
+		// 观察参数值用于类型推断
+		if storedValue != "" {
+			paramNode.ObserveValue(storedValue)
+		}
+		paramNode.GetContext().SetKey(paramName, storedValue)
 
 		// 增量推断：仅当 unique 值数自上次推断后变化时才重算。
 		// 参数值大量重复（如 page=1 反复出现），每次命中全量推断是 O(N²)。
-		if param.Value != "" && x.chainRule != nil {
+		if storedValue != "" && x.chainRule != nil {
 			uniqueCount := paramNode.GetValueMetric().GetUniqueValueCount()
 			if uniqueCount != paramNode.GetLastInferredUniqueCount() {
 				physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(paramNode)
@@ -904,7 +988,16 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 		return nil
 	}
 
-	newParamNode := node.NewRequestParamNode(paramName, param.Value, false)
+	// 脱敏参数：默认值传空，不存原值（NewRequestParamNode 会观察默认值）。
+	storedDefault := param.Value
+	logValue := param.Value
+	if x.redact.IsParamRedacted(paramName) {
+		storedDefault = ""
+		logValue = "[redacted]"
+	}
+	newParamNode := node.NewRequestParamNode(paramName, storedDefault, false)
+	// 生产护栏：ValueMetric 上限
+	x.applyMetricCap(newParamNode.GetValueMetric())
 	if multiValue {
 		newParamNode.SetMultiValue(true)
 	}
@@ -912,7 +1005,7 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 	newParamNode.IncrementPresenceCount()
 
 	// 如果参数值不为空，尝试类型推断（首次推断后记录 uniqueCount 缓存）
-	if param.Value != "" && x.chainRule != nil {
+	if storedDefault != "" && x.chainRule != nil {
 		physicalType, logicalType, err := x.chainRule.InferPhysicalAndLogical(newParamNode)
 		x.stats.TypeInferences.Add(1)
 		if err == nil {
@@ -922,11 +1015,15 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 		newParamNode.SetLastInferredUniqueCount(newParamNode.GetValueMetric().GetUniqueValueCount())
 	}
 
+	// 生产护栏：子节点数上限
+	if err := x.childrenGuard(methodNode); err != nil {
+		return err
+	}
 	if err := methodNode.AddChild(newParamNode); err != nil {
 		return fmt.Errorf("添加参数节点 '%s' 失败: %w", paramName, err)
 	}
 	x.stats.ParamsCreated.Add(1)
-	x.logger.Debug("创建参数节点", "method", methodNode.GetKey(), "param", paramName, "value", param.Value, "physical_type", newParamNode.GetValueType(), "logical_type", newParamNode.GetLogicalType())
+	x.logger.Debug("创建参数节点", "method", methodNode.GetKey(), "param", paramName, "value", logValue, "physical_type", newParamNode.GetValueType(), "logical_type", newParamNode.GetLogicalType())
 
 	return nil
 }
@@ -939,6 +1036,10 @@ func (x *ReverseRouter) findOrCreateContentTypeNode(methodNode node.Node[node.No
 	}
 
 	newCTNode := node.NewRequestContentTypeNode(contentType)
+	// 生产护栏：子节点数上限
+	if err := x.childrenGuard(methodNode); err != nil {
+		return nil, err
+	}
 	if err := methodNode.AddChild(newCTNode); err != nil {
 		return nil, fmt.Errorf("添加Content-Type节点失败: %w", err)
 	}
@@ -1607,13 +1708,27 @@ func (x *ReverseRouter) processRoutingHeaders(methodNode node.Node[node.NodeCont
 		} else {
 			// 创建新的Header名称分组节点
 			headerGroupNode = node.NewRequestHeaderNode(canonicalName)
+			// 生产护栏：子节点数上限
+			if err := x.childrenGuard(methodNode); err != nil {
+				return err
+			}
 			if err := methodNode.AddChild(headerGroupNode); err != nil {
 				return fmt.Errorf("添加Header路由节点 '%s' 失败: %w", canonicalName, err)
 			}
 		}
 
+		// 生产护栏：值节点数上限（防高基数 header 值撑爆分组）。
+		// 已存在值只做计数累加不增长，无需检查；仅新建前检查。
+		if headerGroupNode.FindChildByKey(normalizedValue) == nil {
+			if err := x.childrenGuard(headerGroupNode); err != nil {
+				continue
+			}
+		}
 		// 在分组节点下查找或创建Header值节点
-		headerGroupNode.FindOrCreateValueNode(normalizedValue)
+		if vn := headerGroupNode.FindOrCreateValueNode(normalizedValue); vn != nil {
+			// 生产护栏：ValueMetric 上限
+			x.applyMetricCap(vn.GetValueMetric())
+		}
 	}
 
 	return nil
@@ -1644,13 +1759,31 @@ func (x *ReverseRouter) processCookies(methodNode node.Node[node.NodeContext], h
 		} else {
 			// 创建新的Cookie名称分组节点
 			cookieGroupNode = node.NewRequestCookieNode(cookieName)
+			// 生产护栏：子节点数上限
+			if err := x.childrenGuard(methodNode); err != nil {
+				return err
+			}
 			if err := methodNode.AddChild(cookieGroupNode); err != nil {
 				return fmt.Errorf("添加Cookie路由节点 '%s' 失败: %w", cookieName, err)
 			}
 		}
 
+		// 脱敏 cookie 只记结构：值替换为占位键，不存原值。
+		storedCookieValue := cookieValue
+		if x.redact.IsCookieRedacted(cookieName) {
+			storedCookieValue = RedactedCookieValue
+		}
+		// 生产护栏：值节点数上限（超限跳过该值，fail-soft）
+		if cookieGroupNode.FindChildByKey(storedCookieValue) == nil {
+			if err := x.childrenGuard(cookieGroupNode); err != nil {
+				continue
+			}
+		}
 		// 在分组节点下查找或创建Cookie值节点
-		cookieGroupNode.FindOrCreateValueNode(cookieValue)
+		if vn := cookieGroupNode.FindOrCreateValueNode(storedCookieValue); vn != nil {
+			// 生产护栏：ValueMetric 上限
+			x.applyMetricCap(vn.GetValueMetric())
+		}
 	}
 
 	return nil

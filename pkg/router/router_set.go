@@ -15,6 +15,9 @@ type RouterSet struct {
 	mu               sync.RWMutex
 	routers          map[string]*ReverseRouter
 	config           MergeConfig
+	limits           ResourceLimits
+	redact           RedactConfig
+	maxHosts         int
 	rule             inference.TypeInferenceRule
 	mergeRule        MergeRule
 	logger           *RouterLogger
@@ -24,7 +27,13 @@ type RouterSet struct {
 
 // NewRouterSet 创建一个按 host 隔离的路由器集合。
 func NewRouterSet() *RouterSet {
-	return &RouterSet{routers: make(map[string]*ReverseRouter), config: DefaultMergeConfig}
+	return &RouterSet{
+		routers:  make(map[string]*ReverseRouter),
+		config:   DefaultMergeConfig,
+		limits:   DefaultResourceLimits,
+		redact:   DefaultRedactConfig(),
+		maxHosts: DefaultMaxHosts,
+	}
 }
 
 func routerHost(req *request.HttpRequest) string {
@@ -38,6 +47,7 @@ func routerHost(req *request.HttpRequest) string {
 }
 
 // RouterFor 返回请求对应的 host 路由器，并在首次访问时懒创建。
+// host 桶数达 MaxHosts 上限时返回 nil（调用方 fail-soft）；0 表示不限制。
 func (s *RouterSet) RouterFor(req *request.HttpRequest) *ReverseRouter {
 	if s == nil {
 		return nil
@@ -52,8 +62,13 @@ func (s *RouterSet) RouterFor(req *request.HttpRequest) *ReverseRouter {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r = s.routers[host]; r == nil {
+		if s.maxHosts > 0 && len(s.routers) >= s.maxHosts {
+			return nil
+		}
 		r = NewReverseRouter()
 		r.SetMergeConfig(s.config)
+		r.SetResourceLimits(s.limits)
+		r.SetRedactConfig(s.redact)
 		if s.rule != nil {
 			r.SetInferenceRule(s.rule)
 		}
@@ -69,6 +84,65 @@ func (s *RouterSet) RouterFor(req *request.HttpRequest) *ReverseRouter {
 		s.routers[host] = r
 	}
 	return r
+}
+
+// SetMaxHosts 设置最大 host 桶数（0 表示不限制）。超限后新 host 建桶失败。
+func (s *RouterSet) SetMaxHosts(n int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.maxHosts = n
+	s.mu.Unlock()
+}
+
+// Delete 删除指定 host 的路由树，释放内存。host 不存在时无操作，返回 false。
+func (s *RouterSet) Delete(host string) bool {
+	if s == nil {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.routers[host]; !ok {
+		return false
+	}
+	delete(s.routers, host)
+	return true
+}
+
+// SetResourceLimits 设置默认资源上限，并同步已有 Host 路由器。
+func (s *RouterSet) SetResourceLimits(limits ResourceLimits) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.limits = limits
+	routers := make([]*ReverseRouter, 0, len(s.routers))
+	for _, r := range s.routers {
+		routers = append(routers, r)
+	}
+	s.mu.Unlock()
+	for _, r := range routers {
+		r.SetResourceLimits(limits)
+	}
+}
+
+// SetRedactConfig 设置默认脱敏名单，并同步已有 Host 路由器。
+func (s *RouterSet) SetRedactConfig(cfg RedactConfig) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.redact = cfg
+	routers := make([]*ReverseRouter, 0, len(s.routers))
+	for _, r := range s.routers {
+		routers = append(routers, r)
+	}
+	s.mu.Unlock()
+	for _, r := range routers {
+		r.SetRedactConfig(cfg)
+	}
 }
 
 // ReverseHttpRequest 将请求分发到对应 host 的独立路由树。

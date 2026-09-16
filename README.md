@@ -33,7 +33,8 @@ POST /api/users (json)     ──▶  requestBody: name, age
 - **必需参数推断**：基于出现频率，阈值可配
 - **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点，`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
 - **多目标 Host 隔离**：`RouterSet` 按 host 分桶，每个目标应用独立还原路由树，避免跨目标污染；`HostAssetKey` 用于跨目标资产清单
-- **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断
+- **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断；`ToVersionedJSON` 带版本信封持久化，`FromJSON` 兼容读历史裸 root 与版本信封，未知高版本明确报错
+- **生产护栏（默认开启）**：`SetResourceLimits` 限单父节点子节点数 / 单 ValueMetric 不同值数 / 单路径段长度，超限 fail-soft（拒绝新建、占位计数、截断），`SetRedactConfig` 对敏感参数/cookie 只记结构不存原值（默认覆盖 password/passwd/pwd、sessionid），`RouterSet` 支持 `SetMaxHosts`/`Delete` 容量治理，配置向已有/新建 host 桶传播
 - **OpenAPI 3.0.3 导出**：路径/参数/请求体/安全方案（从 Authorization 推断 Bearer/Basic/Digest）
 - **并发安全**：`-race` 全量测试通过，多 goroutine 并发喂数据安全
 - **可观测性**：结构化日志（slog）+ 11 项 atomic 统计指标

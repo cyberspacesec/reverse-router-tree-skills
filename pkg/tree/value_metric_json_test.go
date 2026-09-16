@@ -55,3 +55,38 @@ func TestJSONWithoutValueCountsIsCompatible(t *testing.T) {
 		t.Fatal("旧 JSON 应可正常导入")
 	}
 }
+
+func TestVersionedJSONRoundTrip(t *testing.T) {
+	tree := NewTree()
+	if err := tree.AddNode("api/users", node.NewRequestMethodNode("GET")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := tree.ToVersionedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := NewTree()
+	if err := restored.FromJSON(data); err != nil {
+		t.Fatalf("版本信封应可导入: %v", err)
+	}
+	if restored.Root.FindChildByKey("api") == nil {
+		t.Fatal("版本信封往返后应保留 api 节点")
+	}
+}
+
+func TestVersionedJSONRejectsFutureVersion(t *testing.T) {
+	tree := NewTree()
+	future := []byte(`{"version":999,"tree":{"type":"root","key":"root","children":[]}}`)
+	if err := tree.FromJSON(future); err == nil {
+		t.Fatal("未知高版本应返回明确错误，而非静默误读")
+	}
+}
+
+func TestVersionedJSONEnvelopeWithoutVersion(t *testing.T) {
+	// 无 version 字段的信封形状按 v0 兼容读，不报错。
+	tree := NewTree()
+	data := []byte(`{"tree":{"type":"root","key":"root","children":[]}}`)
+	if err := tree.FromJSON(data); err != nil {
+		t.Fatalf("无版本信封应兼容读: %v", err)
+	}
+}

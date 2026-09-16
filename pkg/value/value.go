@@ -16,9 +16,16 @@ type Value struct {
 }
 
 // 对实际的值的采样
+//
+// 生产护栏：maxUnique 限制不同值（unique）数量上限，超限后新值归入 cappedKey
+// 占位桶，保证总量可统计、内存有界。0 表示不限制（默认，保持向后兼容）。
+// 用 SetMaxUnique 配置；AddValue 生效上限，AddValueCapped 允许单次覆盖。
 type ValueMetric struct {
-	mu       sync.RWMutex
-	valueMap map[string]int
+	mu         sync.RWMutex
+	valueMap   map[string]int
+	maxUnique  int
+	cappedKey  string
+	cappedDrop int64
 }
 
 // NewValueMetric 创建一个新的值度量对象
@@ -28,11 +35,60 @@ func NewValueMetric() *ValueMetric {
 	}
 }
 
-// AddValue 添加一个值到度量中
+// SetMaxUnique 设置 unique 上限与占位键。maxUnique <= 0 表示不限制。
+func (v *ValueMetric) SetMaxUnique(maxUnique int, cappedKey string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.maxUnique = maxUnique
+	if cappedKey == "" {
+		cappedKey = "[capped]"
+	}
+	v.cappedKey = cappedKey
+}
+
+// CappedDropped 返回因超限被归入占位桶的新值次数。
+func (v *ValueMetric) CappedDropped() int64 {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.cappedDrop
+}
+
+// AddValue 添加一个值到度量中（生效 SetMaxUnique 上限）。
 func (v *ValueMetric) AddValue(val string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if _, ok := v.valueMap[val]; ok {
+		v.valueMap[val]++
+		return
+	}
+	if v.maxUnique > 0 && len(v.valueMap) >= v.maxUnique {
+		v.valueMap[v.cappedKey]++
+		v.cappedDrop++
+		return
+	}
 	v.valueMap[val]++
+}
+
+// AddValueCapped 添加一个值到度量中，unique 数达上限后新值不再存原值。
+// maxUnique <= 0 表示不限制。已存在值的计数始终累加；超限后的新值计数
+// 归入 cappedKey 占位桶，保证总量可统计、内存有界。
+// 返回 true 表示原值已记录，false 表示被归入占位桶。
+func (v *ValueMetric) AddValueCapped(val string, maxUnique int, cappedKey string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if _, ok := v.valueMap[val]; ok {
+		v.valueMap[val]++
+		return true
+	}
+	if maxUnique > 0 && len(v.valueMap) >= maxUnique {
+		if cappedKey == "" {
+			cappedKey = "[capped]"
+		}
+		v.valueMap[cappedKey]++
+		return false
+	}
+	v.valueMap[val]++
+	return true
 }
 
 // IsEmpty 检查度量是否为空

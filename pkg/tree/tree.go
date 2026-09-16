@@ -226,10 +226,26 @@ type RouteNodeJSON struct {
 	ValueCounts   map[string]int `json:"value_counts,omitempty"`
 }
 
+// TreeJSONVersion 当前持久化格式版本。ToJSON 保持裸 root 形状（历史兼容），
+// 需要版本标记的持久化请用 ToVersionedJSON；FromJSON 两种形状都接受。
+const TreeJSONVersion = 1
+
+// TreeJSONEnvelope 带版本的持久化信封：version 顶层标记，tree 为路由根节点。
+type TreeJSONEnvelope struct {
+	Version int            `json:"version"`
+	Tree    *RouteNodeJSON `json:"tree"`
+}
+
 // ToJSON 将路由树导出为JSON格式
 func (x *Tree) ToJSON() ([]byte, error) {
 	root := x.nodeToJSON(x.Root)
 	return json.MarshalIndent(root, "", "  ")
+}
+
+// ToVersionedJSON 将路由树导出为带版本信封的 JSON，便于持久化演进与兼容读。
+func (x *Tree) ToVersionedJSON() ([]byte, error) {
+	env := &TreeJSONEnvelope{Version: TreeJSONVersion, Tree: x.nodeToJSON(x.Root)}
+	return json.MarshalIndent(env, "", "  ")
 }
 
 // nodeToJSON 将节点递归转换为JSON结构
@@ -289,11 +305,36 @@ func (x *Tree) nodeToJSON(n node.Node[node.NodeContext]) *RouteNodeJSON {
 	return result
 }
 
-// FromJSON 从JSON格式导入路由树
+// FromJSON 从JSON格式导入路由树。
+// 兼容两种形状：历史裸 root（无 version 字段）与 ToVersionedJSON 的版本信封。
+// 未知高版本返回明确错误，避免静默误读未来格式。
 func (x *Tree) FromJSON(data []byte) error {
-	var root RouteNodeJSON
-	if err := json.Unmarshal(data, &root); err != nil {
+	var probe struct {
+		Version *int           `json:"version"`
+		Tree    *RouteNodeJSON `json:"tree"`
+		Type    string         `json:"type"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
 		return fmt.Errorf("JSON反序列化失败: %w", err)
+	}
+	var root RouteNodeJSON
+	switch {
+	case probe.Tree != nil:
+		version := 0
+		if probe.Version != nil {
+			version = *probe.Version
+		}
+		if version > TreeJSONVersion {
+			return fmt.Errorf("不支持的路由树版本 %d（当前最高 v%d）", version, TreeJSONVersion)
+		}
+		root = *probe.Tree
+	case probe.Type != "":
+		root = RouteNodeJSON{}
+		if err := json.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("JSON反序列化失败: %w", err)
+		}
+	default:
+		return fmt.Errorf("JSON反序列化失败: 无法识别路由树形状（既不是版本信封也不是根节点）")
 	}
 
 	x.Root = x.jsonToNode(&root)
