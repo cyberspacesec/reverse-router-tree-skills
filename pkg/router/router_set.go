@@ -181,42 +181,23 @@ func (s *RouterSet) ReverseCurls(curls []string) BatchResult {
 }
 
 // NormalizeURL 在请求所属 host 的路由树中执行归一化。
+// 只读查找：未知 host 返回 false 且不建桶（读操作无副作用）。
+// 需要失败原因时用 NormalizeURLDetailed。
 func (s *RouterSet) NormalizeURL(req *request.HttpRequest) (NormalizedRoute, bool) {
-	r := s.RouterFor(req)
-	if r == nil {
-		return NormalizedRoute{}, false
-	}
-	result, ok := r.NormalizeURL(req)
-	if ok {
-		result.Host = routerHost(req)
-	}
-	return result, ok
+	route, reason := s.NormalizeURLDetailed(req)
+	return route, reason == NormalizeOK
 }
 
 // NormalizeURLs 批量归一化请求，返回 AssetKey 到原始 URL 的分桶。
+// 失败样本静默跳过；需要失败明细时用 NormalizeURLsDetailed。
 func (s *RouterSet) NormalizeURLs(reqs []*request.HttpRequest) map[string][]string {
-	result := make(map[string][]string)
-	for _, req := range reqs {
-		n, ok := s.NormalizeURL(req)
-		if !ok {
-			continue
-		}
-		result[n.AssetKey()] = append(result[n.AssetKey()], req.Url)
-	}
-	return result
+	return s.NormalizeURLsDetailed(reqs).Matched
 }
 
 // NormalizeAssets 批量归一化请求，返回包含 Host 的多目标资产键到原始 URL 的分桶。
+// 失败样本静默跳过；需要失败明细时用 NormalizeAssetsDetailed。
 func (s *RouterSet) NormalizeAssets(reqs []*request.HttpRequest) map[string][]string {
-	result := make(map[string][]string)
-	for _, req := range reqs {
-		n, ok := s.NormalizeURL(req)
-		if !ok {
-			continue
-		}
-		result[n.HostAssetKey()] = append(result[n.HostAssetKey()], req.Url)
-	}
-	return result
+	return s.NormalizeAssetsDetailed(reqs).Matched
 }
 
 // snapshotRouters 返回当前子路由器快照，避免配置传播时持有集合锁。

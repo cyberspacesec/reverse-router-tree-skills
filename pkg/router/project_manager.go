@@ -316,17 +316,11 @@ func (m *ProjectManager) ReverseCurls(projectID string, curls []string) BatchRes
 }
 
 // NormalizeURL 在指定项目内归一化请求。
+// 项目不存在返回 false 且不建项目（读操作无副作用）。
+// 需要失败原因时用 NormalizeURLDetailed。
 func (m *ProjectManager) NormalizeURL(projectID string, req *request.HttpRequest) (NormalizedRoute, bool) {
-	if m == nil {
-		return NormalizedRoute{}, false
-	}
-	m.mu.RLock()
-	rs := m.projects[normalizeProjectID(projectID)]
-	m.mu.RUnlock()
-	if rs == nil {
-		return NormalizedRoute{}, false
-	}
-	return rs.NormalizeURL(req)
+	route, reason := m.NormalizeURLDetailed(projectID, req)
+	return route, reason == NormalizeOK
 }
 
 // ProjectStats 返回指定项目的各 host 统计快照；项目不存在返回空 map。

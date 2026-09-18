@@ -61,6 +61,7 @@ export default withMermaid(defineConfig({
           collapsed: false,
           items: [
             { text: '9 步逆向流程', link: '/features/reverse-flow' },
+            { text: 'URL 归一化 API', link: '/features/url-normalization' },
             { text: 'IsNeedRequest 去重', link: '/features/is-need-request' }
           ]
         },

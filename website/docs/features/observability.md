@@ -10,7 +10,7 @@
 │   五级：Debug / Info / Warn / Error / Off        │
 │   默认 Warn（低噪音），调试时开 Debug 看全链路    │
 ├──────────────────────────────────────────────────┤
-│  RouterStats   11 项 atomic 计数指标             │
+│  RouterStats   16 项 atomic 计数指标             │
 │   量化逆向效果，可 JSON 序列化上报监控            │
 └──────────────────────────────────────────────────┘
 ```
@@ -67,7 +67,7 @@ ReverseHttpRequest:
 
 ## 可观测性统计 RouterStats
 
-11 项 `atomic.Int64` 计数器，线程安全，量化逆向效果：
+16 项 `atomic.Int64` 计数器，线程安全，量化逆向效果：
 
 | 指标 | 含义 |
 |------|------|
@@ -79,7 +79,18 @@ ReverseHttpRequest:
 | `body_params_parsed` | 从请求体解析的参数总数 |
 | `required_params_inferred` | 推断为必需的参数数 |
 | `merge_attempts` / `merge_skipped` | 合并尝试 / 跳过次数 |
+| `total_processing_nanos` / `max_processing_nanos` | 累计 / 单请求最大处理耗时（纳秒，平均=累计/请求数） |
+| `rejected_children` | 子节点上限拒绝次数（护栏细分） |
+| `truncated_segments` | 超长路径段截断次数 |
+| `redacted_values` | 脱敏命中次数（参数+cookie） |
 | `warnings` / `errors` | 警告 / 错误事件数 |
+
+### 健康报告 Health
+
+`Health()` 一次返回性能+规模+护栏：`Stats` 快照、`Tree` 节点分布、
+人类可读延迟（`avg_latency_human` / `max_latency_human`）、
+护栏拒绝率（`rejected_children/requests`）与错误率。
+`RouterSet.Health()` 按 host 聚合，`ProjectManager.Health()` 按项目聚合。
 
 ### 用法
 

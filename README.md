@@ -31,7 +31,7 @@ POST /api/users (json)     ──▶  requestBody: name, age
 - **多维度路由**：Content-Type / Header（Accept 等）/ Cookie 作为子路由维度
 - **两层类型推断**：物理类型（integer/string/...）+ 逻辑类型（uuid/phone/idcard/...）
 - **必需参数推断**：基于出现频率，阈值可配
-- **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点，`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
+- **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点；归一化提供 `Detailed` 变体返回机器可读失败原因（unknown_path/method/host/project/invalid_request）、`NormalizeReport` 批量明细替代静默丢弃、`ListAssets` 枚举全量资产、`NormalizeCurl`/`NormalizeURLString` 直达入口，读操作只读不建桶；`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
 - **多目标 Host 隔离**：`RouterSet` 按 host 分桶，每个目标应用独立还原路由树，避免跨目标污染；`HostAssetKey` 用于跨目标资产清单
 - **项目级隔离**：`ProjectManager` 按安全测试项目管理多个 `RouterSet`，同 host 在不同项目间互不污染；`SetMaxProjects` 防项目爆炸，`Project/Delete/Projects` 治理生命周期，合并/上限/脱敏/host上限/日志配置向已有与新建项目传播，`Stats/Health` 按项目聚合
 - **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断；`ToVersionedJSON` 带版本信封持久化，`FromJSON` 兼容读历史裸 root 与版本信封，未知高版本明确报错

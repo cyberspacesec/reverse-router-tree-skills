@@ -1321,71 +1321,16 @@ func (x *ReverseRouter) normalizePathSegments(paths []*request.HttpRequestPath) 
 
 // NormalizeURL 将一条已采集请求归一化为方法+路径模板资产。
 // 请求必须已经被 ReverseHttpRequest 收录；未命中已知路由时返回 false。
+// 需要失败原因时用 NormalizeURLDetailed（本方法内部即调它，保持行为一致）。
 func (x *ReverseRouter) NormalizeURL(req *request.HttpRequest) (NormalizedRoute, bool) {
-	if req == nil || x == nil || x.Tree == nil || x.Tree.Root == nil {
-		return NormalizedRoute{}, false
-	}
-	paths, _, err := request.NewUrlParser(req.Url).Parse()
-	if err != nil {
-		return NormalizedRoute{}, false
-	}
-	defer request.ReleasePaths(paths)
-
-	method := strings.ToUpper(req.Method)
-	if method == "" {
-		method = "GET"
-	}
-	pathEnd, parts, pathParams, ok := x.normalizePathSegments(paths)
-	if !ok {
-		return NormalizedRoute{}, false
-	}
-	methodNode := pathEnd.FindChildByKey(method)
-	if methodNode == nil || methodNode.GetType() != "request_method" {
-		return NormalizedRoute{}, false
-	}
-
-	result := NormalizedRoute{
-		Host:           req.Host,
-		Method:         method,
-		Template:       "/" + strings.Join(parts, "/"),
-		PathParams:     pathParams,
-		QueryParams:    make([]string, 0),
-		RequiredParams: make([]string, 0),
-	}
-	if strings.TrimSpace(result.Host) == "" {
-		result.Host = request.ExtractHost(req.Url)
-	}
-	if result.Template == "/" && len(parts) == 0 {
-		result.Template = "/"
-	}
-	for _, child := range methodNode.GetChildren() {
-		if child.GetType() != "request_param" {
-			continue
-		}
-		param, ok := child.(*node.RequestParamNode)
-		if !ok {
-			continue
-		}
-		name := param.GetParamName()
-		result.QueryParams = append(result.QueryParams, name)
-		if param.IsRequired() {
-			result.RequiredParams = append(result.RequiredParams, name)
-		}
-	}
-	return result, true
+	route, reason := x.NormalizeURLDetailed(req)
+	return route, reason == NormalizeOK
 }
 
 // NormalizeURLs 批量将请求归入方法+模板资产键。
+// 失败样本静默跳过；需要失败明细时用 NormalizeURLsDetailed。
 func (x *ReverseRouter) NormalizeURLs(reqs []*request.HttpRequest) map[string][]string {
-	result := make(map[string][]string)
-	for _, req := range reqs {
-		normalized, ok := x.NormalizeURL(req)
-		if !ok {
-			continue
-		}
-		result[normalized.AssetKey()] = append(result[normalized.AssetKey()], req.Url)
-	}
-	return result
+	return x.NormalizeURLsDetailed(reqs).Matched
 }
 
 // FindRouteNode 在已构建的路由树中查找给定请求会命中的"方法节点"
