@@ -33,7 +33,7 @@ const (
 //   - Warn：异常数据兼容（非法 body、模式匹配失败等）
 //   - Error：处理失败
 type RouterLogger struct {
-	logger *slog.Logger
+	logger  *slog.Logger
 	enabled bool
 }
 
@@ -119,10 +119,10 @@ func (l *RouterLogger) SetLevel(level LogLevel) {
 // discardHandler 丢弃所有日志的 handler
 type discardHandler struct{}
 
-func (discardHandler) Enabled(_ context.Context, _ slog.Level) bool      { return false }
-func (discardHandler) Handle(_ context.Context, _ slog.Record) error    { return nil }
-func (h discardHandler) WithAttrs(_ []slog.Attr) slog.Handler           { return h }
-func (h discardHandler) WithGroup(_ string) slog.Handler                { return h }
+func (discardHandler) Enabled(_ context.Context, _ slog.Level) bool  { return false }
+func (discardHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
+func (h discardHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
+func (h discardHandler) WithGroup(_ string) slog.Handler             { return h }
 
 // 以下方法封装 slog，nil 安全
 //
@@ -215,6 +215,18 @@ type RouterStats struct {
 	Warnings atomic.Int64
 	// Errors 处理错误数
 	Errors atomic.Int64
+	// TotalProcessingNanos 所有请求累计处理耗时（纳秒），用于计算平均延迟。
+	// 每次 ReverseHttpRequest 结束时累加（含失败请求），无锁 atomic。
+	TotalProcessingNanos atomic.Int64
+	// MaxProcessingNanos 单请求最大处理耗时（纳秒），CAS 更新。
+	MaxProcessingNanos atomic.Int64
+	// RejectedChildren 子节点数上限触发的拒绝次数（childrenGuard 命中）。
+	// 与 Warnings 同时计数，此处细分原因，便于监控区分“护栏拒绝”与“数据兼容警告”。
+	RejectedChildren atomic.Int64
+	// TruncatedSegments 超长路径段截断次数。
+	TruncatedSegments atomic.Int64
+	// RedactedValues 命中脱敏名单的值次数（参数+cookie，只记结构不存原值）。
+	RedactedValues atomic.Int64
 }
 
 // NewRouterStats 创建空的统计指标。
@@ -224,17 +236,35 @@ func NewRouterStats() *RouterStats {
 
 // StatsSnapshot 统计指标的只读快照（值类型，便于序列化和展示）。
 type StatsSnapshot struct {
-	RequestsProcessed     int64 `json:"requests_processed"`
+	RequestsProcessed       int64 `json:"requests_processed"`
 	PathVariablesIdentified int64 `json:"path_variables_identified"`
-	PatternDetections     int64 `json:"pattern_detections"`
-	ParamsCreated         int64 `json:"params_created"`
-	TypeInferences        int64 `json:"type_inferences"`
-	BodyParamsParsed      int64 `json:"body_params_parsed"`
-	RequiredParamsInferred int64 `json:"required_params_inferred"`
-	MergeAttempts         int64 `json:"merge_attempts"`
-	MergeSkipped          int64 `json:"merge_skipped"`
-	Warnings              int64 `json:"warnings"`
-	Errors                int64 `json:"errors"`
+	PatternDetections       int64 `json:"pattern_detections"`
+	ParamsCreated           int64 `json:"params_created"`
+	TypeInferences          int64 `json:"type_inferences"`
+	BodyParamsParsed        int64 `json:"body_params_parsed"`
+	RequiredParamsInferred  int64 `json:"required_params_inferred"`
+	MergeAttempts           int64 `json:"merge_attempts"`
+	MergeSkipped            int64 `json:"merge_skipped"`
+	Warnings                int64 `json:"warnings"`
+	Errors                  int64 `json:"errors"`
+	// TotalProcessingNanos 累计处理耗时（纳秒），除以 RequestsProcessed 即平均延迟。
+	TotalProcessingNanos int64 `json:"total_processing_nanos"`
+	// MaxProcessingNanos 单请求最大处理耗时（纳秒）。
+	MaxProcessingNanos int64 `json:"max_processing_nanos"`
+	// RejectedChildren 子节点上限拒绝次数（护栏细分）。
+	RejectedChildren int64 `json:"rejected_children"`
+	// TruncatedSegments 超长路径段截断次数。
+	TruncatedSegments int64 `json:"truncated_segments"`
+	// RedactedValues 脱敏命中次数（参数+cookie）。
+	RedactedValues int64 `json:"redacted_values"`
+}
+
+// AvgProcessingNanos 返回平均单请求处理耗时（纳秒），无请求时返回 0。
+func (snap StatsSnapshot) AvgProcessingNanos() int64 {
+	if snap.RequestsProcessed <= 0 {
+		return 0
+	}
+	return snap.TotalProcessingNanos / snap.RequestsProcessed
 }
 
 // Snapshot 返回当前统计的快照。
@@ -254,6 +284,25 @@ func (s *RouterStats) Snapshot() StatsSnapshot {
 		MergeSkipped:            s.MergeSkipped.Load(),
 		Warnings:                s.Warnings.Load(),
 		Errors:                  s.Errors.Load(),
+		TotalProcessingNanos:    s.TotalProcessingNanos.Load(),
+		MaxProcessingNanos:      s.MaxProcessingNanos.Load(),
+		RejectedChildren:        s.RejectedChildren.Load(),
+		TruncatedSegments:       s.TruncatedSegments.Load(),
+		RedactedValues:          s.RedactedValues.Load(),
+	}
+}
+
+// recordLatency 记录一次请求处理耗时（纳秒），累加总量并 CAS 更新最大值。
+func (s *RouterStats) recordLatency(nanos int64) {
+	if s == nil || nanos < 0 {
+		return
+	}
+	s.TotalProcessingNanos.Add(nanos)
+	for {
+		cur := s.MaxProcessingNanos.Load()
+		if nanos <= cur || s.MaxProcessingNanos.CompareAndSwap(cur, nanos) {
+			return
+		}
 	}
 }
 
@@ -273,12 +322,19 @@ func (s *RouterStats) Reset() {
 	s.MergeSkipped.Store(0)
 	s.Warnings.Store(0)
 	s.Errors.Store(0)
+	s.TotalProcessingNanos.Store(0)
+	s.MaxProcessingNanos.Store(0)
+	s.RejectedChildren.Store(0)
+	s.TruncatedSegments.Store(0)
+	s.RedactedValues.Store(0)
 }
 
 // String 返回人类可读的统计摘要。
 func (snap StatsSnapshot) String() string {
-	return fmt.Sprintf("requests=%d, path_vars=%d, params=%d, body_params=%d, type_inferences=%d, required=%d, merges=%d(skipped=%d), warnings=%d, errors=%d",
+	return fmt.Sprintf("requests=%d, avg=%dns, max=%dns, path_vars=%d, params=%d, body_params=%d, type_inferences=%d, required=%d, merges=%d(skipped=%d), rejected_children=%d, truncated=%d, redacted=%d, warnings=%d, errors=%d",
 		snap.RequestsProcessed,
+		snap.AvgProcessingNanos(),
+		snap.MaxProcessingNanos,
 		snap.PathVariablesIdentified,
 		snap.ParamsCreated,
 		snap.BodyParamsParsed,
@@ -286,6 +342,9 @@ func (snap StatsSnapshot) String() string {
 		snap.RequiredParamsInferred,
 		snap.MergeAttempts,
 		snap.MergeSkipped,
+		snap.RejectedChildren,
+		snap.TruncatedSegments,
+		snap.RedactedValues,
 		snap.Warnings,
 		snap.Errors,
 	)

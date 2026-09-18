@@ -350,6 +350,24 @@ func (s *RouterSet) Stats() map[string]StatsSnapshot {
 	return result
 }
 
+// Health 返回各 host 的健康报告（性能+规模+护栏，key 为 host）。
+func (s *RouterSet) Health() map[string]HealthReport {
+	result := make(map[string]HealthReport)
+	if s == nil {
+		return result
+	}
+	s.mu.RLock()
+	snapshot := make(map[string]*ReverseRouter, len(s.routers))
+	for h, r := range s.routers {
+		snapshot[h] = r
+	}
+	s.mu.RUnlock()
+	for h, r := range snapshot {
+		result[h] = r.Health()
+	}
+	return result
+}
+
 // appendBatchError 追加批量处理失败详情，沿用 ReverseRouter 的数量和长度限制。
 func appendBatchError(result *BatchResult, index int, raw string, err error) {
 	if len(result.Errors) >= maxBatchErrors {

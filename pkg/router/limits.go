@@ -109,6 +109,10 @@ const RedactedCookieValue = "[redacted]"
 // 覆盖现有测试用量（≤4），远高于单次测绘常规目标数，防 host 爆炸 OOM。
 const DefaultMaxHosts = 10000
 
+// DefaultMaxProjects ProjectManager 默认最大项目数，0 表示不限制。
+// 单个安全测试项目对应一个 RouterSet；多项目并发时防项目爆炸 OOM。
+const DefaultMaxProjects = 1000
+
 // buildRedactSet 名单转小写集合。
 func buildRedactSet(names []string) map[string]bool {
 	set := make(map[string]bool, len(names))

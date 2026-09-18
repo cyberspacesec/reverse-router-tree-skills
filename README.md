@@ -33,11 +33,12 @@ POST /api/users (json)     ──▶  requestBody: name, age
 - **必需参数推断**：基于出现频率，阈值可配
 - **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点，`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
 - **多目标 Host 隔离**：`RouterSet` 按 host 分桶，每个目标应用独立还原路由树，避免跨目标污染；`HostAssetKey` 用于跨目标资产清单
+- **项目级隔离**：`ProjectManager` 按安全测试项目管理多个 `RouterSet`，同 host 在不同项目间互不污染；`SetMaxProjects` 防项目爆炸，`Project/Delete/Projects` 治理生命周期，合并/上限/脱敏/host上限/日志配置向已有与新建项目传播，`Stats/Health` 按项目聚合
 - **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断；`ToVersionedJSON` 带版本信封持久化，`FromJSON` 兼容读历史裸 root 与版本信封，未知高版本明确报错
 - **生产护栏（默认开启）**：`SetResourceLimits` 限单父节点子节点数 / 单 ValueMetric 不同值数 / 单路径段长度，超限 fail-soft（拒绝新建、占位计数、截断），`SetRedactConfig` 对敏感参数/cookie 只记结构不存原值（默认覆盖 password/passwd/pwd、sessionid），`RouterSet` 支持 `SetMaxHosts`/`Delete` 容量治理，配置向已有/新建 host 桶传播
 - **OpenAPI 3.0.3 导出**：路径/参数/请求体/安全方案（从 Authorization 推断 Bearer/Basic/Digest）
 - **并发安全**：`-race` 全量测试通过，多 goroutine 并发喂数据安全
-- **可观测性**：结构化日志（slog）+ 11 项 atomic 统计指标
+- **可观测性**：结构化日志（slog）+ 16 项 atomic 统计指标（含累计/最大处理耗时、护栏拒绝/截断/脱敏细分），`Health()` 一次返回性能+规模+护栏健康报告（`RouterSet`/`ProjectManager` 按 host/项目聚合），`String()` 输出人类可读摘要
 - **自定义合并规则**：`SetMergeRule` 注入业务专属的"什么算变量"判定
 - **零外部依赖**：纯 Go 标准库
 
@@ -96,7 +97,7 @@ func main() {
 
 | 包 | 职责 |
 |---|---|
-| `pkg/router` | `ReverseRouter` 主入口、`RouterSet` 多目标 Host 分桶，9 步逆向流程，归一化 API，合并策略，自定义合并规则 |
+| `pkg/router` | `ReverseRouter` 主入口、`RouterSet` 多目标 Host 分桶、`ProjectManager` 项目级隔离，9 步逆向流程，归一化 API，合并策略，自定义合并规则，生产护栏，Health 健康报告 |
 | `pkg/request` | `HttpRequest` / `Headers` / `UrlParser` / `BodyParser` |
 | `pkg/node` | 路径/参数/变量/方法/Content-Type/Header/Cookie 节点，`BaseNode` 通用树 |
 | `pkg/tree` | `Tree` 容器，JSON 序列化/反序列化（类型信息往返一致） |

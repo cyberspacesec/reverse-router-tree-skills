@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/inference"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/node"
@@ -190,6 +191,7 @@ func (x *ReverseRouter) childrenGuard(parent node.Node[node.NodeContext]) error 
 	}
 	if parent.GetChildCount() >= maxChildren {
 		x.stats.Warnings.Add(1)
+		x.stats.RejectedChildren.Add(1)
 		return fmt.Errorf("父节点 '%s' 子节点数达上限 %d，拒绝新建", parent.GetKey(), maxChildren)
 	}
 	return nil
@@ -200,6 +202,7 @@ func (x *ReverseRouter) truncateSegment(seg string) string {
 	maxLen := x.limits.LoadLimits().MaxSegmentLen
 	if maxLen > 0 && len(seg) > maxLen {
 		x.stats.Warnings.Add(1)
+		x.stats.TruncatedSegments.Add(1)
 		return seg[:maxLen]
 	}
 	return seg
@@ -226,6 +229,60 @@ func (x *ReverseRouter) GetStats() StatsSnapshot {
 	return x.stats.Snapshot()
 }
 
+// HealthReport 是面向用户的一目了然的运行健康报告：性能 + 规模 + 护栏状态。
+// 性能：请求量、平均/最大延迟；规模：Tree.RouteStats 节点分布；护栏：拒绝/截断/脱敏细分。
+type HealthReport struct {
+	Stats StatsSnapshot   `json:"stats"`
+	Tree  tree.RouteStats `json:"tree"`
+	// AvgLatencyHuman 平均延迟人类可读串（如 "725ns"、"1.2ms"）。
+	AvgLatencyHuman string `json:"avg_latency_human"`
+	// MaxLatencyHuman 最大延迟人类可读串。
+	MaxLatencyHuman string `json:"max_latency_human"`
+	// GuardRejectRate 护栏拒绝率 = rejected_children / requests（0~1，无请求时 0）。
+	GuardRejectRate float64 `json:"guard_reject_rate"`
+	// ErrorRate 错误率 = errors / requests（0~1，无请求时 0）。
+	ErrorRate float64 `json:"error_rate"`
+}
+
+// Health 返回当前路由器的健康报告（性能+规模+护栏，一次调用拿全）。
+func (x *ReverseRouter) Health() HealthReport {
+	snap := x.stats.Snapshot()
+	var treeStats tree.RouteStats
+	if x.Tree != nil {
+		treeStats = x.Tree.Stats()
+	}
+	rep := HealthReport{Stats: snap, Tree: treeStats}
+	rep.AvgLatencyHuman = formatNanos(snap.AvgProcessingNanos())
+	rep.MaxLatencyHuman = formatNanos(snap.MaxProcessingNanos)
+	if snap.RequestsProcessed > 0 {
+		rep.GuardRejectRate = float64(snap.RejectedChildren) / float64(snap.RequestsProcessed)
+		rep.ErrorRate = float64(snap.Errors) / float64(snap.RequestsProcessed)
+	}
+	return rep
+}
+
+// formatNanos 将纳秒转人类可读串（ns/us/ms/s 自适应单位）。
+func formatNanos(ns int64) string {
+	if ns <= 0 {
+		return "0ns"
+	}
+	const (
+		us = 1000
+		ms = 1000 * us
+		s  = 1000 * ms
+	)
+	switch {
+	case ns < us:
+		return fmt.Sprintf("%dns", ns)
+	case ns < ms:
+		return fmt.Sprintf("%.1fus", float64(ns)/us)
+	case ns < s:
+		return fmt.Sprintf("%.1fms", float64(ns)/ms)
+	default:
+		return fmt.Sprintf("%.2fs", float64(ns)/s)
+	}
+}
+
 // ResetStats 清零统计计数器。
 func (x *ReverseRouter) ResetStats() {
 	x.stats.Reset()
@@ -237,6 +294,8 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 		x.stats.Errors.Add(1)
 		return fmt.Errorf("请求不能为nil")
 	}
+	// 性能可观测：记录单请求处理耗时（成功路径），累加总量并更新最大值。
+	start := time.Now()
 
 	x.logger.Debug("开始处理请求", "url", req.Url, "method", req.Method)
 
@@ -348,6 +407,7 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 	methodNode.IncrementRequestCount()
 
 	x.stats.RequestsProcessed.Add(1)
+	x.stats.recordLatency(time.Since(start).Nanoseconds())
 	x.logger.Debug("请求处理完成", "url", req.Url, "method", method, "params", len(allParams), "body_params", len(bodyParams))
 
 	return nil
@@ -964,6 +1024,7 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 		storedValue := param.Value
 		if redacted {
 			storedValue = ""
+			x.stats.RedactedValues.Add(1)
 		}
 		// 观察参数值用于类型推断
 		if storedValue != "" {
@@ -994,6 +1055,7 @@ func (x *ReverseRouter) findOrCreateParamNode(methodNode node.Node[node.NodeCont
 	if x.redact.IsParamRedacted(paramName) {
 		storedDefault = ""
 		logValue = "[redacted]"
+		x.stats.RedactedValues.Add(1)
 	}
 	newParamNode := node.NewRequestParamNode(paramName, storedDefault, false)
 	// 生产护栏：ValueMetric 上限
@@ -1772,6 +1834,7 @@ func (x *ReverseRouter) processCookies(methodNode node.Node[node.NodeContext], h
 		storedCookieValue := cookieValue
 		if x.redact.IsCookieRedacted(cookieName) {
 			storedCookieValue = RedactedCookieValue
+			x.stats.RedactedValues.Add(1)
 		}
 		// 生产护栏：值节点数上限（超限跳过该值，fail-soft）
 		if cookieGroupNode.FindChildByKey(storedCookieValue) == nil {
