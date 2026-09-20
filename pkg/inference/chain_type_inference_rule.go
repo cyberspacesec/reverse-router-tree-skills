@@ -100,6 +100,7 @@ func (c *ChainTypeInferenceRule) InferPhysicalAndLogical(n node.Node[node.NodeCo
 		physicalRule = NewPhysicalTypeInferenceRule()
 	}
 	pt, err := physicalRule.Infer(n)
+	// 覆盖说明：物理推断器各路径均返回 nil error，本失败分支防御性不可达。保留原样。
 	if err != nil {
 		return value.PhysicalTypeString, value.LogicalTypeString, fmt.Errorf("物理类型推断失败: %w", err)
 	}
@@ -110,6 +111,7 @@ func (c *ChainTypeInferenceRule) InferPhysicalAndLogical(n node.Node[node.NodeCo
 		logicalRule = NewLogicalTypeInferenceRule()
 	}
 	lt, err := logicalRule.Infer(n)
+	// 覆盖说明：逻辑推断器各路径均返回 nil error，本失败分支防御性不可达。保留原样。
 	if err != nil {
 		return physicalType, value.LogicalTypeString, nil
 	}
@@ -117,6 +119,8 @@ func (c *ChainTypeInferenceRule) InferPhysicalAndLogical(n node.Node[node.NodeCo
 
 	// 如果逻辑类型和物理类型相同，说明没有推断出更具体的逻辑类型
 	// 此时逻辑类型保持为 string（表示没有更具体的语义信息）
+	// 覆盖说明：逻辑推断只产出结构化类型（email/date/...）或 string，
+	// 从不返回物理基础类型（integer/float/boolean/...），本归并分支不可达。保留原样。
 	if logicalType == value.LogicalType(physicalType) && physicalType != value.PhysicalTypeString {
 		logicalType = value.LogicalTypeString
 	}

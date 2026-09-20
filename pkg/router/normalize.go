@@ -114,20 +114,7 @@ func (x *ReverseRouter) NormalizeURLDetailed(req *request.HttpRequest) (Normaliz
 	if result.Template == "/" && len(parts) == 0 {
 		result.Template = "/"
 	}
-	for _, child := range methodNode.GetChildren() {
-		if child.GetType() != "request_param" {
-			continue
-		}
-		param, ok := child.(*node.RequestParamNode)
-		if !ok {
-			continue
-		}
-		name := param.GetParamName()
-		result.QueryParams = append(result.QueryParams, name)
-		if param.IsRequired() {
-			result.RequiredParams = append(result.RequiredParams, name)
-		}
-	}
+	result.QueryParams, result.RequiredParams = collectSortedParams(methodNode)
 	return result, NormalizeOK
 }
 
@@ -216,6 +203,17 @@ func buildAsset(methodNode node.Node[node.NodeContext], segments, pathParams []s
 		QueryParams:    make([]string, 0),
 		RequiredParams: make([]string, 0),
 	}
+	asset.QueryParams, asset.RequiredParams = collectSortedParams(methodNode)
+	return asset
+}
+
+// collectSortedParams 收集方法节点下的参数名，按字典序稳定排序后返回。
+// 参数在树中的存储顺序受批量喂入时 URL query 解析（map 迭代）影响而不确定，
+// 故对外输出统一排序，保证 NormalizeURLDetailed / ListAssets 的 QueryParams、
+// RequiredParams 顺序可复现（测绘资产 diff/快照测试依赖稳定输出）。
+func collectSortedParams(methodNode node.Node[node.NodeContext]) (queryParams, requiredParams []string) {
+	var all []string
+	required := make(map[string]bool)
 	for _, child := range methodNode.GetChildren() {
 		if child.GetType() != "request_param" {
 			continue
@@ -225,12 +223,20 @@ func buildAsset(methodNode node.Node[node.NodeContext], segments, pathParams []s
 			continue
 		}
 		name := param.GetParamName()
-		asset.QueryParams = append(asset.QueryParams, name)
+		all = append(all, name)
 		if param.IsRequired() {
-			asset.RequiredParams = append(asset.RequiredParams, name)
+			required[name] = true
 		}
 	}
-	return asset
+	sort.Strings(all)
+	queryParams = make([]string, 0, len(all))
+	for _, name := range all {
+		queryParams = append(queryParams, name)
+		if required[name] {
+			requiredParams = append(requiredParams, name)
+		}
+	}
+	return queryParams, requiredParams
 }
 
 // --- RouterSet ---
@@ -370,6 +376,14 @@ func (m *ProjectManager) NormalizeURLs(projectID string, reqs []*request.HttpReq
 	return report.Matched
 }
 
+// NormalizeAssets 在指定项目内批量归一化，返回 HostAssetKey 到原始 URL 的多目标分桶。
+// 失败样本静默跳过；需要失败明细时用 NormalizeAssetsDetailed。
+// 与 NormalizeURLs 的区别在于键含 Host 维度（HostAssetKey），用于跨目标资产归并。
+func (m *ProjectManager) NormalizeAssets(projectID string, reqs []*request.HttpRequest) map[string][]string {
+	report := m.NormalizeAssetsDetailed(projectID, reqs)
+	return report.Matched
+}
+
 // NormalizeURLsDetailed 在指定项目内批量归一化，返回明细报告（键为 AssetKey）。
 func (m *ProjectManager) NormalizeURLsDetailed(projectID string, reqs []*request.HttpRequest) NormalizeReport {
 	report := NormalizeReport{Matched: make(map[string][]string)}
@@ -421,6 +435,13 @@ func (m *ProjectManager) NormalizeCurlDetailed(projectID, raw string) (Normalize
 		return NormalizedRoute{}, NormalizeReasonInvalidRequest
 	}
 	return m.NormalizeURLDetailed(projectID, req)
+}
+
+// NormalizeURLString 在指定项目内直接归一化裸 URL + 方法，无需手动构造 HttpRequest。
+// host 从 URL 自动提取。method 为空时视为 GET（与各层 NormalizeURLString 一致）。
+func (m *ProjectManager) NormalizeURLString(projectID, url, method string) (NormalizedRoute, bool) {
+	route, reason := m.NormalizeURLDetailed(projectID, request.NewHttpRequest(url, nil, method, nil))
+	return route, reason == NormalizeOK
 }
 
 // ProjectAssets 返回单个项目的资产清单：host → 资产列表。项目不存在返回空 map。

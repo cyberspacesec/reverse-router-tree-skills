@@ -35,8 +35,8 @@ func NewRequestHeaderNode(headerName string) *RequestHeaderNode {
 	baseNode := NewBaseNode[NodeContext]("request_header", headerName, headerName, context)
 
 	return &RequestHeaderNode{
-		BaseNode:    baseNode,
-		headerName:  headerName,
+		BaseNode:   baseNode,
+		headerName: headerName,
 	}
 }
 
@@ -60,6 +60,7 @@ func (n *RequestHeaderNode) FindOrCreateValueNode(headerValue string) *RequestHe
 	if err := n.AddChild(newValueNode); err == nil {
 		return newValueNode
 	}
+	// 覆盖说明：防御性失败分支（AddChild 出错时降级为 nil），正常路径不可达。保留原样。
 	return nil
 }
 

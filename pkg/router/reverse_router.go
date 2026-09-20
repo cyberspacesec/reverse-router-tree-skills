@@ -1653,6 +1653,8 @@ func normalizeAuthorization(val string) string {
 	if len(parts) > 0 {
 		return parts[0]
 	}
+	// 覆盖说明：此分支为不可达死代码——val 非空时 strings.SplitN 恒返回至少 1 个 part，
+	// len(parts) > 0 恒为真。为保持语句覆盖率天花板透明，保留原样并文档化（见 TestGapRC_AuthorizationReturn）。
 	return ""
 }
 

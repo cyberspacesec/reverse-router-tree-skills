@@ -39,6 +39,8 @@ func (x *Tree) AddNode(path string, n node.Node[node.NodeContext]) error {
 	currentNode := x.Root
 
 	for _, segment := range segments {
+		// 覆盖说明：normalizePath 已 Trim 首尾 "/" 并压缩 "//"，Split 后无空段，
+		// 本空段 continue 分支不可达（防御性）。保留原样以保证健壮。
 		if segment == "" {
 			continue
 		}
@@ -50,6 +52,7 @@ func (x *Tree) AddNode(path string, n node.Node[node.NodeContext]) error {
 		}
 
 		newPathNode := node.NewRequestPathNode(segment)
+		// 覆盖说明：新建节点挂到内存树上的 AddChild 正常不失败，本错误分支为防御性。保留原样。
 		if err := currentNode.AddChild(newPathNode); err != nil {
 			return fmt.Errorf("添加路径节点 '%s' 失败: %w", segment, err)
 		}
@@ -70,6 +73,8 @@ func (x *Tree) FindNodeByPath(path string) node.Node[node.NodeContext] {
 	currentNode := x.Root
 
 	for _, segment := range segments {
+		// 覆盖说明：normalizePath 已 Trim 首尾 "/" 并压缩 "//"，Split 后无空段，
+		// 本空段 continue 分支不可达（防御性）。保留原样以保证健壮。
 		if segment == "" {
 			continue
 		}

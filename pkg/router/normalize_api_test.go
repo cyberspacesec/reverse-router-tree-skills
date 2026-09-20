@@ -286,11 +286,25 @@ func TestProjectManager_NormalizeAPIs(t *testing.T) {
 			t.Errorf("Host 键应带 host 前缀，实际 %q", k)
 		}
 	}
+	// NormalizeAssets 便捷入口应与 Detailed.Matched 一致（键含 Host 维度）
+	hostMap := m.NormalizeAssets("web", []*request.HttpRequest{request.NewHttpRequest("http://h.test/api/9", nil, "GET", nil)})
+	for k := range hostMap {
+		if !strings.HasPrefix(k, "h.test ") {
+			t.Errorf("NormalizeAssets 键应带 host 前缀，实际 %q", k)
+		}
+	}
+	if len(hostMap) != len(hostReport.Matched) {
+		t.Errorf("NormalizeAssets(%d) 应与 Detailed.Matched(%d) 分桶数一致", len(hostMap), len(hostReport.Matched))
+	}
 	// curl 直达
 	if _, ok := m.NormalizeCurl("web", "curl 'http://h.test/api/5'"); !ok {
 		t.Error("项目内 curl 应归一化成功")
 	}
-	if _, reason := m.NormalizeCurlDetailed("ghost", "curl 'http://h.test/api/5'"); reason != NormalizeReasonUnknownProject {
+	// 裸 URL 直达（项目级便捷入口，host 从 URL 提取）
+	if _, ok := m.NormalizeURLString("web", "http://h.test/api/5", "GET"); !ok {
+		t.Error("项目内裸 URL 应归一化成功")
+	}
+	if _, reason := m.NormalizeURLDetailed("ghost", request.NewHttpRequest("http://h.test/api/1", nil, "GET", nil)); reason != NormalizeReasonUnknownProject {
 		t.Errorf("未知项目 curl 应 unknown_project，实际 %v", reason)
 	}
 	// 资产清单：单项目 + 全项目

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 
@@ -14,7 +15,28 @@ import (
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/router"
 )
 
+// 以下变量由 goreleaser 构建时通过 -ldflags -X 注入版本/提交/构建时间。
+// 本地 go run 时不注入，保持默认占位。
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
+	// 版本标志仅对真实二进制生效：--version 打印后退出。
+	// quickstart 测试直接调用 main() 时，全局 flag.CommandLine 已被测试框架
+	// 解析过，故只在未解析过（真实运行）时才注册并解析，避免与测试参数冲突、
+	// 保持测试可重复运行。
+	if !flag.CommandLine.Parsed() {
+		showVersion := flag.Bool("version", false, "打印版本信息并退出")
+		flag.Parse()
+		if *showVersion {
+			fmt.Printf("quickstart %s (commit %s, built %s)\n", version, commit, date)
+			return
+		}
+	}
+
 	r := router.NewReverseRouter()
 
 	// 模拟测绘平台导出的一批 curl 命令：数字 ID 合并为 {users_id}，
@@ -57,4 +79,27 @@ func main() {
 	st := r.GetStats()
 	fmt.Printf("=== 统计 ===\n请求数: %d  路径变量: %d  参数: %d  类型推断: %d\n",
 		st.RequestsProcessed, st.PathVariablesIdentified, st.ParamsCreated, st.TypeInferences)
+
+	// === URL 资产归一化 ===
+	// 散落的同接口 URL 归一到稳定的路由模板，支撑测绘资产去重/聚合/检索。
+	fmt.Println("=== 已知资产清单（ListAssets） ===")
+	for _, a := range r.ListAssets() {
+		fmt.Printf("  %-6s %-24s params=%v required=%v\n",
+			a.Method, a.Template, a.QueryParams, a.RequiredParams)
+	}
+
+	// 裸 URL 直达：新来的 /api/users/999 应归到已有模板，而非新开节点。
+	fmt.Println("=== 归一化直达（NormalizeURLString） ===")
+	samples := []string{
+		"http://api.example.com/api/users/999",
+		"http://api.example.com/api/users?page=3&size=20",
+	}
+	for _, u := range samples {
+		route, ok := r.NormalizeURLString(u, "GET")
+		if ok {
+			fmt.Printf("  %-52s → %s %s\n", u, route.Method, route.Template)
+		} else {
+			fmt.Printf("  %-52s → 未命中已知路由\n", u)
+		}
+	}
 }

@@ -69,6 +69,7 @@ func (h Headers) GetAuthScheme() string {
 	if len(parts) > 0 {
 		return parts[0]
 	}
+	// 覆盖说明：auth 非空时 SplitN 恒返回 ≥1 段，本 return "" 不可达（防御性）。保留原样。
 	return ""
 }
 

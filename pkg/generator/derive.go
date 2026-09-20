@@ -20,17 +20,17 @@ const (
 
 // patternXXX 是 PathVarSpec.Pattern 的取值常量
 const (
-	patternInteger          = "integer"
-	patternUUID             = "uuid"
-	patternPhone            = "phone"
-	patternIDCard           = "idcard"
-	patternBankCard         = "bankcard"
-	patternPlate            = "plate"
-	patternPrefix           = "prefix"
-	patternSuffix           = "suffix"
-	patternSimilarLength    = "similar_length"
-	patternFixedWords       = "fixed_words"
-	patternMixedIntFixed    = "mixed_int_fixed"
+	patternInteger       = "integer"
+	patternUUID          = "uuid"
+	patternPhone         = "phone"
+	patternIDCard        = "idcard"
+	patternBankCard      = "bankcard"
+	patternPlate         = "plate"
+	patternPrefix        = "prefix"
+	patternSuffix        = "suffix"
+	patternSimilarLength = "similar_length"
+	patternFixedWords    = "fixed_words"
+	patternMixedIntFixed = "mixed_int_fixed"
 )
 
 // DerivePathVarExpectations 是 deriveExpectations 的导出包装，供外部测试包
@@ -88,6 +88,7 @@ func isIntegerLike(val string) bool {
 	}
 	return true
 }
+
 // 把 PathVarSpec 的随机字段确定性推导成 Expect* 字段。这是整个"已知答案"的源头。
 //
 // 参数：
@@ -355,6 +356,7 @@ func normalizeHeaderValue(name, val string) string {
 		if len(parts) > 0 {
 			return parts[0]
 		}
+		// 覆盖说明：val 非空时 SplitN 恒返回 ≥1 段，本 return "" 不可达（防御性）。保留原样。
 		return ""
 	case "Accept-Language":
 		// 取第一个语言标签，去 ;q= 因子

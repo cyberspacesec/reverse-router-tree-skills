@@ -254,6 +254,7 @@ func (g *Generator) genCookie() *CookieSpec {
 func pickAtLeast(rnd *rand.Rand, src []crudTemplate, min int) []crudTemplate {
 	idxs := rnd.Perm(len(src))
 	k := min + rnd.Intn(len(src)-min+1) // min..len(src)
+	// 覆盖说明：k 上界即为 len(src)（Intn 上限 len-min+1），本钳制分支不可达（防御性）。保留原样。
 	if k > len(src) {
 		k = len(src)
 	}
@@ -356,7 +357,9 @@ func genPhone(rnd *rand.Rand) string {
 }
 
 // genIDCard 生成符合 router idcard 正则的 18 位身份证号：
-//   [1-9]\d{5} (19|20)\d{2} (0[1-9]|1[0-2]) (0[1-9]|[12]\d|3[01]) \d{3} [\dXx]
+//
+//	[1-9]\d{5} (19|20)\d{2} (0[1-9]|1[0-2]) (0[1-9]|[12]\d|3[01]) \d{3} [\dXx]
+//
 // 必须合规，否则 DetectPattern 不识别为 idcard，合并与类型推断都会偏离。
 func genIDCard(rnd *rand.Rand) string {
 	// 地区码 6 位，首位非 0

@@ -87,6 +87,14 @@ route, ok := set.NormalizeCurl("curl 'http://target/api/users/42' -H 'Authorizat
 route, ok := set.NormalizeURLString("http://target/api/users/42", "GET") // 空方法视为 GET
 ```
 
+三层（`ReverseRouter` / `RouterSet` / `ProjectManager`）都提供这组便捷入口；
+`ProjectManager` 版本首参为项目 ID：
+
+```go
+route, ok := mgr.NormalizeURLString("project-a", "http://target/api/users/42", "GET")
+assets := mgr.NormalizeAssets("project-a", reqs) // 项目内多目标资产分桶，键为 HostAssetKey
+```
+
 ## 只读保证：归一化不建桶
 
 `RouterSet.NormalizeURL` 与 `ProjectManager.NormalizeURL` 是**只读操作**：

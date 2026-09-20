@@ -31,8 +31,8 @@ func NewRequestCookieNode(cookieName string) *RequestCookieNode {
 	baseNode := NewBaseNode[NodeContext]("request_cookie", cookieName, cookieName, context)
 
 	return &RequestCookieNode{
-		BaseNode:    baseNode,
-		cookieName:  cookieName,
+		BaseNode:   baseNode,
+		cookieName: cookieName,
 	}
 }
 
@@ -56,6 +56,7 @@ func (n *RequestCookieNode) FindOrCreateValueNode(cookieValue string) *RequestCo
 	if err := n.AddChild(newValueNode); err == nil {
 		return newValueNode
 	}
+	// 覆盖说明：防御性失败分支（AddChild 出错时降级为 nil），正常路径不可达。保留原样。
 	return nil
 }
 

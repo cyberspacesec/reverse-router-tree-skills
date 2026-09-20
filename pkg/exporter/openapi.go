@@ -45,11 +45,11 @@ func NewOpenAPIExporter() *OpenAPIExporter {
 
 // openAPIDoc OpenAPI 文档根结构
 type openAPIDoc struct {
-	OpenAPI    string                     `json:"openapi"`
-	Info       openAPIInfo                `json:"info"`
-	Servers    []openAPIServer            `json:"servers,omitempty"`
+	OpenAPI    string                      `json:"openapi"`
+	Info       openAPIInfo                 `json:"info"`
+	Servers    []openAPIServer             `json:"servers,omitempty"`
 	Paths      map[string]*openAPIPathItem `json:"paths"`
-	Components openAPIComponents          `json:"components,omitempty"`
+	Components openAPIComponents           `json:"components,omitempty"`
 }
 
 type openAPIInfo struct {
@@ -75,11 +75,11 @@ type openAPIPathItem struct {
 }
 
 type openAPIOperation struct {
-	Summary     string           `json:"summary,omitempty"`
-	Description string           `json:"description,omitempty"`
-	OperationID string           `json:"operationId,omitempty"`
-	Parameters  []openAPIParam   `json:"parameters,omitempty"`
-	RequestBody *openAPIRequestBody `json:"requestBody,omitempty"`
+	Summary     string                     `json:"summary,omitempty"`
+	Description string                     `json:"description,omitempty"`
+	OperationID string                     `json:"operationId,omitempty"`
+	Parameters  []openAPIParam             `json:"parameters,omitempty"`
+	RequestBody *openAPIRequestBody        `json:"requestBody,omitempty"`
 	Responses   map[string]openAPIResponse `json:"responses"`
 	// Security 声明该 operation 适用的安全方案（引用 components.securitySchemes 的 key）。
 	// 为空时省略。OpenAPI 规范要求 security 是数组 of 对象，值的数组为空表示该方案无需 scope。
@@ -87,16 +87,16 @@ type openAPIOperation struct {
 }
 
 type openAPIParam struct {
-	Name        string          `json:"name"`
-	In          string          `json:"in"` // query/path/header/cookie
-	Description string          `json:"description,omitempty"`
-	Required    bool            `json:"required"`
-	Schema      openAPISchema   `json:"schema"`
+	Name        string        `json:"name"`
+	In          string        `json:"in"` // query/path/header/cookie
+	Description string        `json:"description,omitempty"`
+	Required    bool          `json:"required"`
+	Schema      openAPISchema `json:"schema"`
 }
 
 type openAPIRequestBody struct {
-	Description string                       `json:"description,omitempty"`
-	Required    bool                         `json:"required"`
+	Description string                      `json:"description,omitempty"`
+	Required    bool                        `json:"required"`
 	Content     map[string]openAPIMediaType `json:"content"`
 }
 
@@ -109,12 +109,12 @@ type openAPIResponse struct {
 }
 
 type openAPISchema struct {
-	Type       string                  `json:"type,omitempty"`
-	Format     string                  `json:"format,omitempty"`
-	Pattern    string                  `json:"pattern,omitempty"`
-	Default    string                  `json:"default,omitempty"`
+	Type       string                   `json:"type,omitempty"`
+	Format     string                   `json:"format,omitempty"`
+	Pattern    string                   `json:"pattern,omitempty"`
+	Default    string                   `json:"default,omitempty"`
 	Properties map[string]openAPISchema `json:"properties,omitempty"`
-	Required   []string                `json:"required,omitempty"`
+	Required   []string                 `json:"required,omitempty"`
 }
 
 type openAPIComponents struct {
@@ -204,7 +204,7 @@ type cookieParam struct {
 
 // pathSegment 记录路径段信息，用于构造 OpenAPI path 和路径变量 schema。
 type pathSegment struct {
-	key     string // 拼接用：request_path 用 key，request_path_variable 用 {key}
+	key     string                        // 拼接用：request_path 用 key，request_path_variable 用 {key}
 	varNode *node.RequestPathVariableNode // 路径变量节点（nil 表示固定路径段）
 }
 
@@ -230,6 +230,8 @@ func (e *OpenAPIExporter) collectEndpoints(n node.Node[node.NodeContext], segs [
 			return e.collectFromMethodNode(n, segs)
 		default:
 			// 其他类型（param/content_type/header/cookie）不应出现在路径栈中
+			// 覆盖说明：路径栈遍历只遇到 path/变量/方法三型，本 default 为空防御分支，
+			// 正常路径不可达。保留原样以防新增节点类型时静默丢失路径。
 		}
 	}
 
