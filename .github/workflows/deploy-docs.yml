@@ -1,5 +1,7 @@
-name: Deploy Docs to GitHub Pages
+name: Deploy Site to GitHub Pages
 
+# 官网（website/home，React+antd）部署在站点根路径，
+# 教学文档站（website/docs，VitePress）部署在 /docs/ 子路径。
 on:
   push:
     branches: [main]
@@ -22,9 +24,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: website
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,18 +33,39 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            website/home/package-lock.json
+            website/package-lock.json
 
-      - name: Install dependencies
+      # --- 官网（React + antd，部署到根路径） ---
+      - name: Install home dependencies
+        working-directory: website/home
         run: npm ci
 
-      - name: Build VitePress
+      - name: Build home site
+        working-directory: website/home
         run: npm run build
+
+      # --- 教学文档站（VitePress，部署到 /docs/ 子路径） ---
+      - name: Install docs dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Build VitePress docs
+        working-directory: website
+        run: npm run build
+
+      # --- 组合：官网占根，教学站入 docs/ ---
+      - name: Assemble site
+        run: |
+          mkdir -p site/docs
+          cp -r website/home/dist/* site/
+          cp -r website/docs/.vitepress/dist/* site/docs/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website/docs/.vitepress/dist
+          path: site
 
   deploy:
     needs: build

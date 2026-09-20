@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 
-// 仓库为 cyberspacesec/reverse-router-tree-skills，部署到 GitHub Pages 项目站点
-// 访问地址：https://cyberspacesec.github.io/reverse-router-tree-skills/
-const base = '/reverse-router-tree-skills/'
+// 仓库为 cyberspacesec/reverse-router-tree-skills，部署到 GitHub Pages 项目站点。
+// 官网（website/home，React）占据站点根路径，教学站部署在 /docs/ 子路径下。
+// 访问地址：https://cyberspacesec.github.io/reverse-router-tree-skills/docs/
+const base = '/reverse-router-tree-skills/docs/'
 
 export default withMermaid(defineConfig({
   lang: 'zh-CN',

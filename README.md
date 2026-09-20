@@ -6,6 +6,8 @@
 [![Go Test](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml/badge.svg)](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
+> 🌐 **在线官网**：<https://cyberspacesec.github.io/reverse-router-tree-skills/> ｜ 📚 **教学文档**：<https://cyberspacesec.github.io/reverse-router-tree-skills/docs/>
+
 给一组抓到的 HTTP 请求，还你一棵还原好的路由树——识别路径变量、查询参数、Content-Type/Header/Cookie 路由维度，推断参数的物理与逻辑类型，最终导出成"黑盒版 Swagger"。
 
 ## 核心目标：网络空间测绘 URL 资产归一化
