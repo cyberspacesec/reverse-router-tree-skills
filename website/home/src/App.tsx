@@ -1,6 +1,7 @@
 import SiteFooter from './components/SiteFooter'
 import SiteHeader from './components/SiteHeader'
 import Hero from './components/Hero'
+import CaseDemo from './components/CaseDemo'
 import Problems from './components/Problems'
 import Features from './components/Features'
 import Normalization from './components/Normalization'
@@ -12,6 +13,7 @@ export default function App() {
       <SiteHeader />
       <main>
         <Hero />
+        <CaseDemo />
         <Problems />
         <Features />
         <Normalization />

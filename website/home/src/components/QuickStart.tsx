@@ -1,7 +1,5 @@
-import { Button, Card, Col, Row, Space, Typography } from 'antd'
-import { BookOutlined, CodeOutlined } from '@ant-design/icons'
 import { DOCS_URL, QUICKSTART_CODE, REPO_URL } from '../content'
-import { SectionTitle } from './Problems'
+import SectionTitle from './SectionTitle'
 
 /** 极简 Go 语法高亮：关键字 / 字符串 / 注释 着色 */
 function highlight(code: string) {
@@ -20,62 +18,39 @@ function highlight(code: string) {
   ))
 }
 
-const STEPS = [
-  {
-    title: '1 · 安装',
-    code: 'go get github.com/cyberspacesec/reverse-router-tree-skills',
-  },
-  {
-    title: '2 · 喂数据 → 拿路由树 → 导出规范',
-    code: null,
-  },
-]
-
 export default function QuickStart() {
   return (
-    <section id="quickstart" style={{ padding: '88px 24px' }}>
-      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+    <section className="section section-alt" id="quickstart">
+      <div className="wrap" style={{ maxWidth: 960 }}>
         <SectionTitle
+          eyebrow="GET STARTED"
           title="快速开始"
-          subtitle="三步接入：批量喂入抓包流量，拿到还原好的路由树，导出 OpenAPI 3.0.3 或归一化资产清单。"
+          subtitle="三步接入：批量喂入抓包流量，拿到还原好的路由树与归一化资产清单，按需导出 OpenAPI 3.0.3。"
         />
-        <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-          <Card size="small">
-            <Typography.Text strong>{STEPS[0].title}</Typography.Text>
-            <pre className="code-block" style={{ marginTop: 12 }}>
-              <span className="fn">go get</span> github.com/cyberspacesec/reverse-router-tree-skills
-            </pre>
-          </Card>
-
-          <Card size="small">
-            <Typography.Text strong>{STEPS[1].title}</Typography.Text>
-            <pre className="code-block" style={{ marginTop: 12 }}>
-              {highlight(QUICKSTART_CODE)}
-            </pre>
-          </Card>
-
-          <Card size="small">
-            <Typography.Text strong>3 · 或者直接跑示例 CLI</Typography.Text>
-            <pre className="code-block" style={{ marginTop: 12 }}>
-              <span className="cmt"># 仓库内置 quickstart 演示：喂数据 → 路由树 → OpenAPI → 资产归一化</span>
-              {'\n'}
-              <span className="fn">go run</span> ./examples/quickstart
-            </pre>
-          </Card>
-        </Space>
-
-        <Row gutter={16} justify="center" style={{ marginTop: 40 }}>
-          <Col>
-            <Button type="primary" size="large" icon={<BookOutlined />} href={DOCS_URL}>
-              阅读教学文档
-            </Button>
-          </Col>
-          <Col>
-            <Button size="large" icon={<CodeOutlined />} href={`${REPO_URL}/tree/main/examples/quickstart`} target="_blank">
-              查看示例源码
-            </Button>
-          </Col>
-        </Row>
+        <div className="qs-card">
+          <h3>1 · 安装</h3>
+          <pre className="code-block">
+            <span className="fn">go get</span> github.com/cyberspacesec/reverse-router-tree-skills
+          </pre>
+        </div>
+        <div className="qs-card">
+          <h3>2 · 喂数据 → 拿路由树 → 导出规范</h3>
+          <pre className="code-block">{highlight(QUICKSTART_CODE)}</pre>
+        </div>
+        <div className="qs-card">
+          <h3>3 · 或者直接跑示例 CLI</h3>
+          <pre className="code-block">
+            <span className="cmt"># 仓库内置 quickstart 演示：喂数据 → 路由树 → OpenAPI → 资产归一化</span>
+            {'\n'}
+            <span className="fn">go run</span> ./examples/quickstart
+          </pre>
+        </div>
+        <div className="qs-actions">
+          <a className="btn btn-primary btn-lg" href={DOCS_URL}>阅读教学文档</a>
+          <a className="btn btn-ghost btn-lg" href={`${REPO_URL}/tree/main/examples/quickstart`} target="_blank" rel="noreferrer">
+            查看示例源码
+          </a>
+        </div>
       </div>
     </section>
   )

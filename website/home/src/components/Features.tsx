@@ -1,43 +1,45 @@
-import { Card, Col, Row, Typography } from 'antd'
-import { FEATURES, METRICS } from '../content'
-import { SectionTitle } from './Problems'
-import { Statistic } from 'antd'
+import { FEATURE_GROUPS, METRICS } from '../content'
+import SectionTitle from './SectionTitle'
 
 export default function Features() {
   return (
-    <section id="features" style={{ padding: '88px 24px' }}>
-      <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+    <section className="section section-alt" id="features">
+      <div className="wrap">
         <SectionTitle
+          eyebrow="CAPABILITIES"
           title="核心能力"
-          subtitle="从流量还原、类型推断到资产归一化、生产护栏——一个纯 Go 标准库实现的完整链路。"
+          subtitle="四步闭环，缺一不可：先把散落的 URL 还原成结构，给结构装上语义，把语义沉淀成资产，再把资产送进生产。"
         />
-        <Row gutter={[20, 20]}>
-          {FEATURES.map((f) => (
-            <Col xs={24} md={12} lg={6} key={f.title}>
-              <Card hoverable style={{ height: '100%' }} styles={{ body: { padding: '22px 20px' } }}>
-                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 10, fontSize: 16 }}>
-                  <span style={{ color: '#3aa676', marginRight: 8 }}>◆</span>
-                  {f.title}
-                </Typography.Title>
-                <Typography.Paragraph style={{ color: '#555', fontSize: 13.5, marginBottom: 0 }}>
-                  {f.desc}
-                </Typography.Paragraph>
-              </Card>
-            </Col>
-          ))}
-        </Row>
+        {FEATURE_GROUPS.map((g, gi) => (
+          <div className="feature-block" key={g.key}>
+            <div className="group-head">
+              <span className="idx">0{gi + 1}</span>
+              <h3>{g.title}</h3>
+            </div>
+            <p className="group-sub">{g.subtitle}</p>
+            <div className="grid-2">
+              {g.items.map((f) => (
+                <div className="card" key={f.title}>
+                  <h3>
+                    <span className="diamond">◆</span>
+                    {f.title}
+                  </h3>
+                  <p>{f.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
 
-        {/* 指标 */}
-        <Row gutter={[24, 24]} style={{ marginTop: 56 }} justify="center">
+        <div className="metrics">
           {METRICS.map((m) => (
-            <Col xs={12} md={6} key={m.label}>
-              <div style={{ textAlign: 'center' }}>
-                <Statistic value={m.value} valueStyle={{ color: '#3aa676', fontSize: 34, fontWeight: 700 }} />
-                <div style={{ color: '#888', marginTop: 6 }}>{m.label}</div>
-              </div>
-            </Col>
+            <div className="metric" key={m.label}>
+              <b>{m.value}</b>
+              <span>{m.label}</span>
+            </div>
           ))}
-        </Row>
+        </div>
+        <p className="metrics-note">覆盖率与测试数来自路由包持续测试基线，详见仓库 CI。</p>
       </div>
     </section>
   )

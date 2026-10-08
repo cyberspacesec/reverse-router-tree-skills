@@ -1,78 +1,60 @@
-import { Card, Col, Row, Table, Tag, Typography } from 'antd'
-import { API_LAYERS } from '../content'
-import { SectionTitle } from './Problems'
-
-/** 归一化 API 三个问题三组能力 */
-const API_GROUPS = [
-  {
-    q: '这条流量归到哪？',
-    apis: 'NormalizeURL / NormalizeCurl / NormalizeURLString',
-    d: '单条直达归一化，返回方法 + 路径模板资产键。',
-  },
-  {
-    q: '归不上卡在哪？',
-    apis: 'NormalizeURLDetailed / NormalizeReport',
-    d: '5 种机器可读失败原因（unknown_path / unknown_method / unknown_host / unknown_project / invalid_request），批量明细替代静默丢弃。',
-  },
-  {
-    q: '树里有哪些资产？',
-    apis: 'ListAssets / ProjectAssets',
-    d: '遍历树枚举全部已知资产，稳定排序输出，按 host / 项目分组，不用逐条请求试探。',
-  },
-]
-
-const LAYER_COLUMNS = [
-  {
-    title: 'API 层',
-    dataIndex: 'name',
-    width: 180,
-    render: (v: string) => <Typography.Text code strong>{v}</Typography.Text>,
-  },
-  { title: '适用场景', dataIndex: 'scope', width: 180 },
-  { title: '说明', dataIndex: 'desc' },
-]
+import { API_GROUPS, API_LAYERS, ASSET_SCENARIOS } from '../content'
+import SectionTitle from './SectionTitle'
 
 export default function Normalization() {
   return (
-    <section id="normalize" style={{ padding: '88px 24px', background: '#fafafa' }}>
-      <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+    <section className="section" id="normalize">
+      <div className="wrap">
         <SectionTitle
+          eyebrow="THE DELIVERABLE"
           title="URL 资产归一化 API"
           subtitle="归一化是本项目的核心输出：把同一接口的不同 URL 收成一条稳定的路由资产，支撑测绘 URL 资产的去重、聚合与检索。"
         />
-        <Row gutter={[20, 20]}>
-          {API_GROUPS.map((g) => (
-            <Col xs={24} md={8} key={g.q}>
-              <Card hoverable style={{ height: '100%' }}>
-                <Tag color="green" style={{ fontSize: 13, marginBottom: 12 }}>
-                  {g.q}
-                </Tag>
-                <Typography.Paragraph strong style={{ fontFamily: 'Consolas, monospace', fontSize: 13, marginBottom: 8 }}>
-                  {g.apis}
-                </Typography.Paragraph>
-                <Typography.Paragraph style={{ color: '#555', fontSize: 13.5, marginBottom: 0 }}>
-                  {g.d}
-                </Typography.Paragraph>
-              </Card>
-            </Col>
-          ))}
-        </Row>
 
-        <Card style={{ marginTop: 32 }} styles={{ body: { padding: '24px 28px' } }}>
-          <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 18 }}>
-            三层 API，入口对称
-          </Typography.Title>
-          <Table
-            dataSource={API_LAYERS}
-            columns={LAYER_COLUMNS}
-            rowKey="name"
-            pagination={false}
-            size="middle"
-          />
-          <Typography.Paragraph style={{ color: '#888', marginTop: 16, marginBottom: 0 }}>
+        <div className="grid-3">
+          {ASSET_SCENARIOS.map((s) => (
+            <div className="card" key={s.title}>
+              <div className="mark">{s.title}</div>
+              <div className="mono-line">{s.how}</div>
+              <p>{s.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid-3" style={{ marginTop: 18 }}>
+          {API_GROUPS.map((g) => (
+            <div className="card" key={g.q}>
+              <div className="mark">{g.q}</div>
+              <div className="mono-line">{g.apis}</div>
+              <p>{g.d}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel">
+          <h3>三层 API，入口对称</h3>
+          <table className="api-table">
+            <thead>
+              <tr>
+                <th>API 层</th>
+                <th>适用场景</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {API_LAYERS.map((l) => (
+                <tr key={l.name}>
+                  <td><code>{l.name}</code></td>
+                  <td>{l.scope}</td>
+                  <td>{l.desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="hint">
             归一化是只读操作：未知 host / 项目只返回失败原因，不懒建空桶，不污染资产清单与配额。
-          </Typography.Paragraph>
-        </Card>
+          </p>
+        </div>
       </div>
     </section>
   )
