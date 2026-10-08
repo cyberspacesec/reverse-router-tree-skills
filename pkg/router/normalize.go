@@ -202,6 +202,8 @@ func buildAsset(methodNode node.Node[node.NodeContext], segments, pathParams []s
 		PathParams:     append([]string{}, pathParams...),
 		QueryParams:    make([]string, 0),
 		RequiredParams: make([]string, 0),
+		Hits:           methodNode.GetRequestCount(),
+		SampleURL:      methodNode.GetValue(),
 	}
 	asset.QueryParams, asset.RequiredParams = collectSortedParams(methodNode)
 	return asset

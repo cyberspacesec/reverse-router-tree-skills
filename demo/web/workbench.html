@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>现场还原工作台 — reverse-router-tree</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1721'/%3E%3Ccircle cx='16' cy='6' r='3' fill='%2334d399'/%3E%3Cpath d='M16 9v8M16 12l-6 6M16 12l6 6' stroke='%2334d399' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='20' r='2' fill='%2338bdf8'/%3E%3Ccircle cx='22' cy='20' r='2' fill='%23fbbf24'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="./d3.v7.min.js"></script>
+  <script>/* 局域网/内网离线部署兜底：本地 D3 缺失时再从 CDN 拉取（相对路径支持子路径部署） */
+    if (!window.d3) { var __s = document.createElement("script"); __s.src = "https://d3js.org/d3.v7.min.js"; document.head.appendChild(__s); }
+  </script>
+  <style>
+    :root {
+      --bg0: #0a1017;
+      --bg1: #0e1721;
+      --bg2: #13202e;
+      --bg3: #16263a;
+      --line: #1e2f42;
+      --line-soft: #15263a;
+      --text: #e6eef5;
+      --text-2: #93a4b5;
+      --text-3: #5d6f82;
+      --green: #34d399;
+      --green-dim: #0d9488;
+      --cyan: #38bdf8;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --violet: #a78bfa;
+      --radius: 12px;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: var(--bg0); color: var(--text); font-family: var(--sans); line-height: 1.6; overflow: hidden; }
+    ::selection { background: rgba(52,211,153,.28); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .mono { font-family: var(--mono); }
+
+    /* ===== 顶部导航（窄，把空间让给工具区） ===== */
+    .nav { flex: 0 0 56px; background: rgba(10,16,23,.9); border-bottom: 1px solid var(--line-soft); backdrop-filter: blur(10px); z-index: 5; }
+    .nav-in { height: 100%; max-width: 1680px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 9px; color: var(--text); font-family: var(--mono); font-weight: 600; font-size: 14px; }
+    .brand:hover { text-decoration: none; }
+    .brand .dot { width: 10px; height: 10px; border-radius: 3px; background: linear-gradient(135deg, var(--green), var(--green-dim)); box-shadow: 0 0 12px rgba(52,211,153,.5); }
+    .brand b { color: var(--green); font-weight: 600; }
+    .nav-links { margin-left: auto; display: flex; gap: 16px; align-items: center; font-size: 13.5px; color: var(--text-2); }
+    .nav-links a { color: var(--text-2); }
+    .nav-links a:hover { color: var(--green); text-decoration: none; }
+    @media (max-width: 620px) {
+      .nav-in { padding: 0 12px; gap: 12px; }
+      .brand { font-size: 13px; }
+      .nav-links { gap: 10px; font-size: 12.5px; }
+      .nav-links a.hide-m { display: none; }
+    }
+
+    /* ===== 主体：左右分栏，铺满剩余视口 ===== */
+    main.app { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 4fr) minmax(0, 7fr); gap: 14px; padding: 14px 20px 18px; max-width: 1680px; margin: 0 auto; width: 100%; }
+
+    .panel { background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+    .panel-head { padding: 13px 16px 0; }
+    .panel-head h3 { font-size: 13.5px; font-weight: 700; letter-spacing: .5px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .panel-head h3 .tag { font-size: 10.5px; font-family: var(--mono); color: var(--text-3); border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; letter-spacing: 0; font-weight: 400; }
+    .panel-head .desc { font-size: 12.4px; color: var(--text-3); margin-top: 5px; }
+
+    /* 左侧：输入面板 */
+    .left-panel { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #24405a transparent; }
+    .left-panel::-webkit-scrollbar { width: 8px; }
+    .left-panel::-webkit-scrollbar-thumb { background: #24405a; border-radius: 4px; }
+    textarea#input { flex: 1; min-height: 220px; margin: 12px 16px 4px; background: #0b141d; border: 1px solid var(--line); border-radius: 10px; color: var(--text); font-family: var(--mono); font-size: 12.6px; line-height: 1.72; padding: 12px 13px; resize: vertical; min-width: 0; }
+    textarea#input:focus { outline: none; border-color: var(--green-dim); box-shadow: 0 0 0 3px rgba(52,211,153,.12); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 16px 10px; }
+    .chip { border: 1px solid var(--line); background: var(--bg2); color: var(--text-2); border-radius: 999px; padding: 3px 11px; font-size: 11.6px; font-family: var(--mono); cursor: pointer; transition: border-color .12s, color .12s; }
+    .chip:hover { border-color: var(--green-dim); color: var(--green); }
+    .chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+    /* ===== 示例场景：一键载入演示样例 ===== */
+    .scene-label { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; font-size: 11.6px; color: var(--text-3); }
+    .scene-label .tag { font-size: 10px; font-family: var(--mono); color: var(--text-3); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; letter-spacing: 0; font-weight: 400; }
+    .scenes { display: flex; gap: 8px; padding: 0 16px 10px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #24405a transparent; }
+    .scene { flex: 0 0 auto; min-width: 132px; max-width: 168px; display: flex; flex-direction: column; gap: 2px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; cursor: pointer; text-align: left; font-family: var(--sans); transition: border-color .12s, box-shadow .12s; }
+    .scene:hover { border-color: var(--green-dim); }
+    .scene.active { border-color: var(--green-dim); box-shadow: 0 0 0 3px rgba(52,211,153,.12); }
+    .scene b { font-size: 12.2px; font-weight: 650; color: var(--text); line-height: 1.35; }
+    .scene span { font-size: 10.6px; color: var(--text-3); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .scene:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .input-actions { display: flex; gap: 10px; align-items: center; padding: 2px 16px 14px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 7px; border: none; border-radius: 9px; padding: 10px 20px; font-size: 14px; font-weight: 650; cursor: pointer; font-family: var(--sans); transition: background .15s, box-shadow .15s, transform .12s; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg, #34d399, #10b981); color: #062a1e; box-shadow: 0 6px 20px rgba(16,185,129,.3); }
+    .btn-primary:hover { box-shadow: 0 8px 26px rgba(16,185,129,.42); }
+    .btn-primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+    .btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--line); }
+    .btn-ghost:hover { background: var(--bg3); }
+    .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    #status { font-size: 12.6px; color: var(--text-2); font-family: var(--mono); min-height: 1.5em; }
+    #status.ok { color: var(--green); }
+    #status.err { color: var(--red); }
+    .tree-hint { padding: 0 16px 14px; font-size: 12px; color: var(--text-3); line-height: 1.75; }
+    .tree-hint kbd { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; font-size: 11px; color: var(--text-2); }
+
+    /* 右侧：展示列 */
+    .right-col { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
+    #resultPanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 14px 16px 0; }
+    .stat { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+    .stat .v { font-size: 19px; font-weight: 750; font-family: var(--mono); line-height: 1.1; }
+    .stat .v.g { color: var(--green); }
+    .stat .v.c { color: var(--cyan); }
+    .stat .v.a { color: var(--amber); }
+    .stat .v.d { color: var(--text-3); }
+    .stat .k { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 16px 0; font-size: 11.6px; color: var(--text-2); }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 2px solid transparent; }
+    .legend .l-fix { border-color: var(--green); background: rgba(52,211,153,.16); }
+    .legend .l-var { border-color: var(--cyan); background: rgba(56,189,248,.16); }
+    .legend .l-leaf { border-color: var(--amber); background: rgba(251,191,36,.15); }
+    #treeWrap { flex: 1; min-height: 460px; margin: 10px 16px 0; background: #0b141d; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; position: relative; }
+    #treeWrap svg { display: block; width: 100%; height: 100%; }
+    .tree-scrim { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(11,20,29,.5); color: var(--text-3); font-size: 13px; font-family: var(--mono); pointer-events: none; transition: opacity .2s; }
+    .tree-scrim.hide { opacity: 0; }
+    /* 树节点（与首页共用一套视觉语言） */
+    #treeWrap .link { fill: none; stroke: #27425c; stroke-width: 1.5; }
+    #treeWrap .node-label { font-family: var(--mono); font-size: 11.5px; font-weight: 500; paint-order: stroke; stroke: #0b141d; stroke-width: 3.2px; }
+
+    /* 资产清单 */
+    #assetPanel { flex: 0 0 auto; max-height: 33vh; display: flex; flex-direction: column; min-height: 0; }
+    .asset-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 6px; }
+    .asset-head h3 { font-size: 13px; font-weight: 700; color: var(--text); }
+    .asset-head .hint { font-size: 11.6px; color: var(--text-3); margin-left: auto; }
+    .asset-scroll { overflow: auto; flex: 1; min-height: 0; scrollbar-width: thin; scrollbar-color: #24405a transparent; }
+    .asset-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .asset-scroll::-webkit-scrollbar-thumb { background: #24405a; border-radius: 4px; }
+    table.assets { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12px; min-width: 720px; }
+    table.assets th, table.assets td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+    table.assets th { color: var(--text-3); font-weight: 500; font-size: 11px; letter-spacing: .6px; position: sticky; top: 0; background: var(--bg1); z-index: 1; }
+    table.assets td.method { color: var(--green); font-weight: 600; }
+    table.assets td.host { color: var(--text-2); }
+    table.assets td.tpl { color: var(--cyan); }
+    table.assets tr:hover td { background: var(--bg3); }
+    .asset-meta { color: var(--text-3); }
+    .empty { color: var(--text-3); font-size: 12.6px; font-family: var(--mono); padding: 14px 4px; }
+
+    /* 移动端：单列堆叠，各自固定高度滚动 */
+    @media (max-width: 960px) {
+      body { overflow: auto; }
+      main.app { grid-template-columns: minmax(0, 1fr); height: auto; padding: 10px 12px 14px; }
+      .left-panel { max-height: 46vh; }
+      .right-col { height: 60vh; }
+      #assetPanel { max-height: 34vh; }
+      textarea#input { min-height: 150px; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+
+
+    .converge { display: flex; align-items: center; gap: 14px; padding: 14px 16px 0; }
+    .cv { display: flex; flex-direction: column; }
+    .cv b { font-family: var(--mono); font-size: 22px; font-weight: 750; color: var(--text); line-height: 1.1; }
+    .cv span { font-size: 11.5px; color: var(--text-3); }
+    .cv-arrow { color: var(--green-dim); font-family: var(--mono); font-size: 16px; }
+    .cv.ratio { margin-left: auto; align-items: flex-end; }
+    .cv.ratio b { color: var(--green); font-size: 15px; }
+    .fails { border-top: 1px solid var(--line-soft); padding: 8px 16px 12px; font-family: var(--mono); font-size: 11.6px; color: var(--red); max-height: 90px; overflow: auto; }
+    .fails .fh { color: var(--text-3); margin-bottom: 3px; }
+    .fails div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: #0d1820; border: 1px solid var(--green-dim); color: var(--green); border-radius: 9px; padding: 8px 16px; font-size: 13px; opacity: 0; transition: opacity .2s; z-index: 80; }
+    .toast.show { opacity: 1; }
+
+    /* ===== 浮动提示 ===== */
+    #tip { position: fixed; z-index: 99; pointer-events: none; background: #0d1820; border: 1px solid var(--line); border-radius: 9px; padding: 10px 13px; font-size: 12.4px; font-family: var(--mono); color: var(--text); max-width: 360px; box-shadow: 0 14px 36px rgba(0,0,0,.5); opacity: 0; transition: opacity .12s; line-height: 1.6; }
+    #tip .tt-title { font-weight: 600; }
+    #tip .tt-row { color: var(--text-2); }
+    #tip .tt-row b { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-in">
+      <a class="brand" href="index.html"><span class="dot"></span>reverse-<b>router</b>-tree</a>
+      <div class="nav-links">
+        <a href="index.html">← 首页</a>
+        <a href="https://cyberspacesec.github.io/reverse-router-tree-skills/docs/" target="_blank" rel="noopener" class="hide-m">文档</a>
+        <a href="https://github.com/cyberspacesec/reverse-router-tree-skills" target="_blank" rel="noopener" class="hide-m">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="app">
+    <!-- 左侧：输入 -->
+    <section class="panel left-panel">
+      <div class="panel-head">
+        <h3>抓包流量输入 <span class="tag">CURL / URL / METHOD URL</span></h3>
+        <div class="desc">一行一条，多域名自动隔离、各自还原。粘贴后点「开始还原」。</div>
+      </div>
+      <textarea id="input" spellcheck="false" placeholder="curl 'http://api.example.com/api/users/123'&#10;curl 'http://api.example.com/api/users/456'&#10;GET http://api.example.com/api/users/profile&#10;curl 'http://api.example.com/api/users?page=1&amp;size=20'&#10;POST http://api.example.com/api/orders -H 'Content-Type: application/json' -d '{"product_id":1,"qty":2}'&#10;curl 'http://api.example.com/api/orders/1001?status=paid'"></textarea>
+      <div class="scene-label"><span>示例场景</span><span class="tag">点击载入并自动还原</span></div>
+      <div class="scenes" id="scenes"></div>
+      <div class="chips" id="chips">
+        <button class="chip" data-add="curl 'http://api.example.com/api/users/123'">users/123</button>
+        <button class="chip" data-add="curl 'http://api.example.com/api/users?page=1&size=20'">users?page</button>
+        <button class="chip" data-add="POST http://api.example.com/api/orders -H 'Content-Type: application/json' -d '{\"product_id\":1,\"qty\":2}'">POST orders</button>
+        <button class="chip" data-add="curl 'http://api.example.com/api/orders/1001?status=paid'">orders/1001</button>
+        <button class="chip" data-add="GET http://cdn.example.com/api/v2/stats/2026-09-29">cdn stats</button>
+      </div>
+      <div class="input-actions">
+        <button class="btn btn-primary" id="runBtn">开始还原 →</button>
+        <button class="btn btn-ghost" id="loadSample">载入完整示例</button>
+        <button class="btn btn-ghost" id="copyAssets" hidden>复制资产清单</button>
+        <span id="status"></span>
+      </div>
+      <div class="tree-hint">
+        <kbd>滚轮</kbd> 缩放 · <kbd>拖拽</kbd> 平移 · <kbd>点击节点</kbd> 折叠/展开子树 · 悬停查看类型与样本值
+      </div>
+    </section>
+
+    <!-- 右侧：展示 -->
+    <div class="right-col">
+      <section class="panel" id="resultPanel">
+        <div class="converge" id="converge" hidden>
+          <div class="cv"><b id="cvIn">–</b><span>输入 URL</span></div>
+          <div class="cv-arrow">→</div>
+          <div class="cv"><b id="cvAsset">–</b><span>归一化资产</span></div>
+          <div class="cv-arrow">→</div>
+          <div class="cv"><b id="cvVar">–</b><span>识别出的变量</span></div>
+          <div class="cv ratio" id="cvRatio"></div>
+        </div>
+        <div class="stats" id="stats">
+          <div class="stat"><div class="v d">–</div><div class="k">树节点</div></div>
+          <div class="stat"><div class="v d">–</div><div class="k">路径变量</div></div>
+          <div class="stat"><div class="v d">–</div><div class="k">参数节点</div></div>
+          <div class="stat"><div class="v d">–</div><div class="k">最深路径</div></div>
+        </div>
+        <div class="legend">
+          <span><i class="l-fix"></i>固定路径</span>
+          <span><i class="l-var"></i>路径变量</span>
+          <span><i class="l-leaf"></i>参数 / 请求体</span>
+        </div>
+        <div id="treeWrap">
+          <div class="tree-scrim" id="treeScrim">⌛ 输入流量，点「开始还原」……</div>
+        </div>
+      </section>
+
+      <section class="panel" id="assetPanel">
+        <div class="asset-head">
+          <h3>归一化资产清单</h3>
+          <span class="hint" id="assetMeta"></span>
+        </div>
+        <div class="asset-scroll">
+          <table class="assets">
+            <thead>
+              <tr><th>HOST</th><th>METHOD</th><th>路径模板</th><th>路径变量</th><th>查询参数</th><th>必需参数</th></tr>
+            </thead>
+            <tbody id="assetBody"></tbody>
+          </table>
+        </div>
+        <div class="fails" id="fails" hidden></div>
+      </section>
+    </div>
+  </main>
+
+  <div id="tip"></div>
+
+  <script>
+    "use strict";
+
+    // ====== 工具 ======
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    }
+    const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // ====== API 前缀推断：支持 index.html / workbench.html 任意页面与子路径部署 ======
+    function detectApiPrefix() {
+      let p = location.pathname.replace(/\/?[^/]*\.html$/, ""); // 剥掉任意 *.html 文件名
+      p = p.replace(/\/+$/, "");                                  // 剥掉尾部 /
+      return p;
+    }
+    const API_PREFIX = detectApiPrefix();
+
+    // ====== 节点样式（与首页共用同一套视觉语言） ======
+    function nodeKind(d) {
+      if (d.data.dynamic || /variable/.test(d.data.type)) return "var";
+      if (/param|content|body|cookie|header/.test(d.data.type)) return "leaf";
+      return "fixed";
+    }
+    const NARROW = window.matchMedia("(max-width: 640px)").matches;
+    function nodeLabel(d) {
+      const t = d.data.type, k = d.data.key;
+      if (/method/.test(t)) return String(k).toUpperCase();
+      if (d.data.dynamic || /variable/.test(t)) return "{" + k + "}" + (!NARROW && d.data.inferred_type ? " · " + d.data.inferred_type : "");
+      if (/param/.test(t)) return "?" + k + (d.data.required ? "*" : "");
+      if (/path$/.test(t)) return k;
+      if (/host/.test(t)) return k;
+      if (/content/.test(t)) return "CT: " + k;
+      if (/cookie/.test(t)) return "ck: " + k;
+      if (t === "root") return "/";
+      return k;
+    }
+    function nodeFill(d) {
+      const kind = nodeKind(d);
+      if (d.data.type === "root") return "none";
+      if (kind === "var") return "rgba(56,189,248,.16)";
+      if (kind === "leaf") return "rgba(251,191,36,.15)";
+      return "rgba(52,211,153,.15)";
+    }
+    function nodeStroke(d) {
+      const kind = nodeKind(d);
+      if (d.data.type === "root") return "#3aa676";
+      if (kind === "var") return "#38bdf8";
+      if (kind === "leaf") return "#fbbf24";
+      return "#34d399";
+    }
+    function nodeTextColor(d) {
+      const kind = nodeKind(d);
+      if (kind === "var") return "#7dd3fc";
+      if (kind === "leaf") return "#fde68a";
+      return "#a7f3d0";
+    }
+
+    function annotate(n) {
+      n._sub = (n.children || []).reduce((s, c) => s + 1 + annotate(c), 0);
+      n.collapsedCount = () => n._sub || 0;
+      return n._sub;
+    }
+
+    // ====== 折叠状态 ======
+    const COLLAPSED = new Set();
+    function computePaths(n, prefix) {
+      n._path = prefix + "/" + n.key;
+      (n.children || []).forEach(c => computePaths(c, n._path));
+    }
+    function markCollapsed(n) {
+      n._collapsed = COLLAPSED.has(n._path);
+      (n.children || []).forEach(markCollapsed);
+    }
+    function pruneCollapsed(n) {
+      if (n._collapsed) { n.children = []; return; }
+      (n.children || []).forEach(pruneCollapsed);
+    }
+    // 深拷贝：只做渲染副本，折叠/展开绝不改动原始树——
+    // 否则 pruneCollapsed 把被折叠子树 children 永久清空，展开时无法恢复
+    function cloneTree(n) {
+      const c = {};
+      for (const k in n) {
+        if (k === "_path" || k === "_sub" || k === "_collapsed") continue;
+        c[k] = n[k];
+      }
+      if (Array.isArray(n.children) && n.children.length) c.children = n.children.map(cloneTree);
+      return c;
+    }
+
+    // ====== D3 树渲染（含折叠交互；渲染前基于 COLLAPSED 做剪枝副本） ======
+    // 标签按真实宽度排布：先离屏量字宽，再按宽度分离同层节点，
+    // 标签统一放在节点上方，次数放在下方。固定间距会让长标签叠在一起。
+    function measureLabels(root) {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font-family:var(--mono);font-size:11.5px;font-weight:500";
+      document.body.appendChild(probe);
+      root.each(d => {
+        probe.textContent = nodeLabel(d);
+        d._lw = probe.getBoundingClientRect().width;
+      });
+      probe.remove();
+    }
+
+    function buildTree(rootSrc, wrapEl, opts) {
+      const rootJSON = cloneTree(rootSrc);
+      computePaths(rootJSON, "");
+      markCollapsed(rootJSON);
+      pruneCollapsed(rootJSON);
+      const w = Math.max(wrapEl.clientWidth, 420);
+      wrapEl.innerHTML = "";
+      if (typeof d3 === "undefined") {
+        wrapEl.innerHTML = '<div class="empty">D3 加载失败（需要联网加载 d3.v7.min.js）</div>';
+        return;
+      }
+      const svg = d3.select(wrapEl).append("svg").attr("preserveAspectRatio", "xMidYMid meet");
+
+      const root = d3.hierarchy(rootJSON);
+      measureLabels(root);
+      const depth = root.height || 1;
+      // 层间距按容器高度给足，节点横向间距按容器宽度分摊，
+      // 避免窄容器里连线被挤成一团。
+      const gap = Math.max(112, ((wrapEl.clientHeight || 520) - 100) / depth);
+      const spread = Math.max(130, (w - 60) / Math.max(1, root.leaves().length));
+      d3.tree().nodeSize([1, gap]).separation((a, b) => {
+        const need = Math.max(spread, a._lw / 2 + b._lw / 2 + 28);
+        return (a.parent === b.parent ? need : need * 1.2);
+      })(root);
+
+      const ds = root.descendants();
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      ds.forEach(d => {
+        minX = Math.min(minX, d.x - d._lw / 2); maxX = Math.max(maxX, d.x + d._lw / 2);
+        minY = Math.min(minY, d.y); maxY = Math.max(maxY, d.y);
+      });
+      const padX = 24, padY = 36;
+      const spanX = Math.max(1, maxX - minX);
+      const spanY = Math.max(1, maxY - minY);
+      const h = Math.max(wrapEl.clientHeight || 0, 300);
+      svg.attr("viewBox", `0 0 ${w} ${h}`);
+      // 整棵树缩放居中进容器；下限保证标签仍可读，放不下时允许拖拽查看。
+      const k = Math.max(.72, Math.min((w - padX * 2) / spanX, (h - padY * 2) / spanY, 1.5));
+      const tx = w / 2 - k * (minX + maxX) / 2;
+      const ty = h / 2 - k * (minY + maxY) / 2;
+      const fit = d3.zoomIdentity.translate(tx, ty).scale(k);
+
+      const linkGen = d3.linkVertical().x(d => d.x).y(d => d.y);
+      const g = svg.append("g");
+      g.selectAll("path.link").data(root.links()).join("path")
+        .attr("class", "link")
+        .attr("d", linkGen)
+        .attr("stroke-opacity", REDUCED ? .75 : 0)
+        .transition().duration(REDUCED ? 0 : 420).delay(REDUCED ? 0 : (d, i) => (d.source.depth - 1) * 90 + i * 18)
+        .attr("stroke-opacity", .75);
+
+      const node = g.selectAll("g.node").data(ds, d => d.data.type + ":" + d.data.key).join("g");
+      node
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .attr("opacity", REDUCED ? 1 : 0)
+        .on("mousemove", (ev, d) => showTip(ev, d))
+        .on("mouseleave", () => hideTip())
+        .on("click", (ev, d) => {
+          ev.stopPropagation();
+          if (!(d.children || d.data._collapsed)) return; // 叶子不折叠
+          const p = d.data._path;
+          if (d.data._collapsed) COLLAPSED.delete(p);
+          else COLLAPSED.add(p);
+          buildTree(currentTree, wrapEl, { collapsible: true });
+        });
+
+      node.append("circle")
+        .attr("r", d => (d.data.requests || 1) > 4 ? 10 : 7)
+        .attr("fill", d => d.data.type === "root" ? "transparent" : d3.color(nodeStroke(d)).copy({ opacity: .1 }))
+        .attr("stroke", "none")
+        .attr("class", "halo");
+      node.append("circle")
+        .attr("r", d => 4 + Math.min(6, Math.sqrt(d.data.requests || 1) * 1.8))
+        .attr("fill", nodeFill)
+        .attr("stroke", nodeStroke)
+        .attr("stroke-width", 1.8)
+        .attr("style", "cursor:pointer")
+        .append("title").text(d => nodeLabel(d));
+
+      node.each(function (d) {
+        const g = d3.select(this);
+        const label = nodeLabel(d);
+        const dy = -16;
+        const text = g.append("text")
+          .attr("dy", dy)
+          .attr("text-anchor", "middle")
+          .attr("class", "node-label")
+          .attr("fill", nodeTextColor(d))
+          .text(label);
+        const lw = text.node().getComputedTextLength();
+        g.insert("rect", "text.node-label")
+          .attr("x", -lw / 2 - 5).attr("y", dy - 12)
+          .attr("width", lw + 10).attr("height", 16).attr("rx", 4)
+          .attr("fill", "#0b141d");
+      });
+
+      node.append("text")
+        .attr("dy", 20)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#5d6f82")
+        .attr("font-size", "9.5px")
+        .attr("font-family", "var(--mono)")
+        .text(d => (d.data.requests || 0) > 1 ? "×" + d.data.requests : "");
+
+      node.transition().duration(REDUCED ? 0 : 420).delay(REDUCED ? 0 : d => d.depth * 90).attr("opacity", 1);
+
+      const zoom = d3.zoom().scaleExtent([.2, 3.2]).on("zoom", ev => g.attr("transform", ev.transform));
+      svg.call(zoom).on("dblclick.zoom", null);
+      svg.call(zoom.transform, fit);
+    }
+
+    // ====== 浮动提示 ======
+    function showTip(ev, d) {
+      const lines = [];
+      lines.push(["节点", nodeLabel(d)]);
+      if (d.data.requests) lines.push(["请求次数", d.data.requests]);
+      if (d.data.inferred_type) lines.push(["推断类型", d.data.inferred_type]);
+      if (d.data.physical_type) lines.push(["物理类型", d.data.physical_type]);
+      if (d.data.required) lines.push(["必需", "是"]);
+      if (d.data.pattern) lines.push(["匹配模式", d.data.pattern]);
+      if (d.data.value_counts && Object.keys(d.data.value_counts).length) {
+        const top = Object.entries(d.data.value_counts).slice(0, 6).map(([k, v]) => `${k}×${v}`).join(", ");
+        lines.push(["样本值", top + (Object.keys(d.data.value_counts).length > 6 ? " …" : "")]);
+      }
+      const tip = document.getElementById("tip");
+      tip.innerHTML = lines.map(([k, v]) => `<div class="tt-${k === "节点" ? "title" : "row"}"><b>${k}</b> ${esc(v)}</div>`).join("");
+      tip.style.opacity = 1;
+      moveTip(ev);
+    }
+    function hideTip() { document.getElementById("tip").style.opacity = 0; }
+    function moveTip(e) {
+      const tip = document.getElementById("tip");
+      const px = e.clientX, py = e.clientY;
+      tip.style.left = (px + 14 > innerWidth - 380 ? px - 380 - 10 : px + 14) + "px";
+      tip.style.top = (py + 14) + "px";
+    }
+    window.addEventListener("mousemove", e => { if (document.getElementById("tip").style.opacity == 1) moveTip(e); });
+
+    // ====== 输入 / 示例 ======
+    const input = document.getElementById("input");
+    const statusEl = document.getElementById("status");
+    const runBtn = document.getElementById("runBtn");
+    const scrim = document.getElementById("treeScrim");
+
+    // ====== 演示场景：一键载入并还原，直观感受工具解决的问题 ======
+    const SCENES = [
+      {
+        name: "经典还原",
+        desc: "数字ID合并 · 必需参数 · 多域名",
+        lines: [
+          "curl 'http://api.example.com/api/users/123'",
+          "curl 'http://api.example.com/api/users/456'",
+          "curl 'http://api.example.com/api/users/789'",
+          "GET http://api.example.com/api/users/profile",
+          "curl 'http://api.example.com/api/users?page=1&size=20'",
+          "POST http://api.example.com/api/orders -H 'Content-Type: application/json' -d '{\"product_id\":1,\"qty\":2}'",
+          "POST http://api.example.com/api/orders -H 'Content-Type: application/json' -d '{\"product_id\":2,\"qty\":1,\"coupon\":\"SAVE10\"}'",
+          "curl 'http://api.example.com/api/orders/1001?status=paid'",
+          "curl 'http://api.example.com/api/orders/1002?status=paid'",
+          "curl 'http://api.example.com/api/orders/1003?status=paid'",
+          "GET http://cdn.example.com/api/v2/stats/2026-09-29",
+        ],
+      },
+      {
+        name: "变量类型识别",
+        desc: "UUID / 手机号 / 银行卡 / 日期 / 序列号",
+        lines: [
+          "curl 'http://t.example.com/api/files/550e8400-e29b-41d4-a716-446655440000'",
+          "curl 'http://t.example.com/api/files/5c0a7f0f-e5f0-4b9f-a1f0-5c0a7f0fe5f0'",
+          "curl 'http://t.example.com/api/files/8a1b2c3d-4e5f-4a6b-8c7d-9e8f0a1b2c3d'",
+          "curl 'http://t.example.com/api/users/13800138000'",
+          "curl 'http://t.example.com/api/users/13900139000'",
+          "curl 'http://t.example.com/api/users/13700137000'",
+          "curl 'http://t.example.com/api/accounts/6222020200112233445'",
+          "curl 'http://t.example.com/api/accounts/6222020200998877665'",
+          "curl 'http://t.example.com/api/accounts/6217001000777888'",
+          "curl 'http://t.example.com/api/reports/2026-09-28'",
+          "curl 'http://t.example.com/api/reports/2026-09-29'",
+          "curl 'http://t.example.com/api/reports/2026-09-30'",
+          "curl 'http://t.example.com/api/machines/MAC-A1B2C3'",
+          "curl 'http://t.example.com/api/machines/MAC-D4E5F6'",
+          "curl 'http://t.example.com/api/machines/MAC-7G8H9I'",
+        ],
+      },
+      {
+        name: "请求体与路由维度",
+        desc: "JSON body → 参数 · Accept 版本 · Cookie",
+        lines: [
+          "curl 'http://api.bank.com/api/transfer' -X POST -H 'Content-Type: application/json' -d '{\"from\":\"6222020200112233445\",\"to\":\"6222020200998877665\",\"amount\":100.5}'",
+          "curl 'http://api.bank.com/api/transfer' -X POST -H 'Content-Type: application/json' -d '{\"from\":\"6222020200112233445\",\"to\":\"6222020200776655443\",\"amount\":200}'",
+          "curl 'http://api.bank.com/api/transfer/status?txn_id=20092800001' -H 'Accept: application/vnd.bank.v1+json'",
+          "curl 'http://api.bank.com/api/transfer/status?txn_id=20092800002' -H 'Accept: application/vnd.bank.v2+json'",
+          "curl 'http://api.bank.com/api/balance' -H 'Cookie: session=abc123' -H 'Accept: application/json'",
+        ],
+      },
+      {
+        name: "多域名隔离",
+        desc: "三域名各自还原 · 资产按 HOST 分列",
+        lines: [
+          "GET http://www.portal.com/",
+          "curl 'http://www.portal.com/api/news?page=1'",
+          "curl 'http://www.portal.com/api/news?page=2'",
+          "curl 'http://www.portal.com/api/news?page=3'",
+          "curl -X POST 'http://api.payments.com/v1/pay' -H 'Content-Type: application/json' -d '{\"order_id\":12345,\"amount\":99.9}'",
+          "curl 'http://api.payments.com/v1/payment/88888888/refund'",
+          "curl 'http://cdn.payments.com/static/js/app.js'",
+          "curl 'http://cdn.payments.com/static/css/main.css'",
+        ],
+      },
+      {
+        name: "必需参数推断",
+        desc: "高频参数标必需 · 低频可选",
+        lines: [
+          "curl 'http://api.search.com/v1/search?q=router&page=1&sort=relevance'",
+          "curl 'http://api.search.com/v1/search?q=tree&page=2&sort=relevance&filter=open'",
+          "curl 'http://api.search.com/v1/search?q=maps&size=50'",
+          "curl 'http://api.search.com/v1/autocomplete?q=rou'",
+          "curl 'http://api.search.com/v1/autocomplete?q=tre&lang=zh'",
+          "curl 'http://api.search.com/v1/autocomplete?q=map'",
+        ],
+      },
+    ];
+    const SAMPLE = SCENES[0].lines;
+    function renderScenes() {
+      const box = document.getElementById("scenes");
+      box.innerHTML = SCENES.map((s, i) =>
+        `<button class="scene" data-i="${i}" type="button"><b>${esc(s.name)}</b><span>${esc(s.desc)}</span></button>`).join("");
+      box.querySelector('[data-i="0"]').classList.add("active");
+    }
+    renderScenes();
+    document.getElementById("scenes").addEventListener("click", ev => {
+      const btn = ev.target.closest("[data-i]");
+      if (!btn) return;
+      document.querySelectorAll(".scene").forEach(s => s.classList.remove("active"));
+      btn.classList.add("active");
+      input.value = SCENES[+btn.dataset.i].lines.join("\n");
+      input.focus();
+      run();
+    });
+    document.getElementById("loadSample").addEventListener("click", () => {
+      input.value = SAMPLE.join("\n");
+      document.querySelectorAll(".scene").forEach(s => s.classList.remove("active"));
+      document.querySelector('[data-i="0"]').classList.add("active");
+      input.focus();
+    });
+    document.getElementById("chips").addEventListener("click", ev => {
+      const btn = ev.target.closest("[data-add]");
+      if (!btn) return;
+      const line = btn.dataset.add;
+      input.value = input.value.replace(/\n*$/, "") + (input.value ? "\n" : "") + line;
+      input.focus();
+      input.scrollTop = input.scrollHeight;
+    });
+
+    // ====== 渲染统计 / 资产 ======
+    function renderStats(stats) {
+      const box = document.getElementById("stats");
+      const items = [
+        ["节点", stats.total_nodes, "g"],
+        ["路径变量", stats.path_variable_nodes, "c"],
+        ["参数节点", stats.param_nodes, "a"],
+        ["最深路径", stats.max_depth, "d"],
+      ];
+      box.innerHTML = items.map(([k, v, cls]) =>
+        `<div class="stat"><div class="v ${cls}">${v ?? 0}</div><div class="k">${k}</div></div>`).join("");
+    }
+    function renderAssets(assets, summary) {
+      const meta = document.getElementById("assetMeta");
+      const body = document.getElementById("assetBody");
+      meta.textContent = `${assets.length} 条资产 · 输入 ${summary.input_lines} 行 → ${summary.parsed} 成功 · ${summary.failed} 失败`;
+      if (!assets.length) {
+        body.innerHTML = `<tr><td colspan="6" class="empty">暂无归一化资产——喂入的 URL 还不够形成路径模板。</td></tr>`;
+        return;
+      }
+      body.innerHTML = assets.map(a => `
+        <tr>
+          <td class="host">${esc(a.host)}</td>
+          <td class="method">${esc(a.method)}</td>
+          <td class="tpl">${esc(a.template)}</td>
+          <td>${(a.path_params || []).map(esc).join(", ") || "–"}</td>
+          <td>${(a.query_params || []).map(esc).join(", ") || "–"}</td>
+          <td>${(a.required_params || []).map(esc).join(", ") || "–"}</td>
+        </tr>`).join("");
+    }
+
+    // ====== 主流程 ======
+    let currentTree = null;
+    async function run() {
+      const lines = input.value.split("\n").map(s => s.trim()).filter(Boolean);
+      if (!lines.length) {
+        statusEl.textContent = "至少粘贴一行 URL 或 CURL";
+        statusEl.className = "err";
+        return;
+      }
+      runBtn.disabled = true;
+      statusEl.textContent = "⌛ 还原中……";
+      statusEl.className = "";
+      scrim.classList.remove("hide");
+      try {
+        const resp = await fetch(API_PREFIX + "/api/normalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lines }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || "HTTP " + resp.status);
+        }
+        const data = await resp.json();
+        currentTree = data.tree;
+        annotate(currentTree);
+        renderStats(data.stats);
+        renderAssets(data.assets, data.summary);
+        renderConverge(data.summary, data.stats);
+        renderFails(data.errors);
+        lastAssets = data.assets || [];
+        copyBtn.hidden = !lastAssets.length;
+        buildTree(currentTree, document.getElementById("treeWrap"), { collapsible: true });
+        scrim.classList.add("hide");
+        statusEl.textContent = `还原完成：${data.summary.input_lines} 行 → ${data.summary.parsed} 条成功 · ${data.summary.failed} 失败 · 归一化 ${data.summary.assets} 条资产`;
+        statusEl.className = "ok";
+      } catch (e) {
+        statusEl.textContent = "还原失败：" + e.message;
+        statusEl.className = "err";
+      } finally {
+        runBtn.disabled = false;
+      }
+    }
+
+    const copyBtn = document.getElementById("copyAssets");
+    let lastAssets = [];
+    function renderConverge(summary, stats) {
+      const box = document.getElementById("converge");
+      box.hidden = false;
+      document.getElementById("cvIn").textContent = summary.input_lines;
+      document.getElementById("cvAsset").textContent = summary.assets;
+      document.getElementById("cvVar").textContent = stats.path_variable_nodes || 0;
+      const ratio = summary.input_lines ? Math.round((1 - summary.assets / summary.input_lines) * 100) : 0;
+      document.getElementById("cvRatio").innerHTML = `<b>${ratio > 0 ? "收敛 " + ratio + "%" : "一一对应"}</b><span>重复 URL 被合并</span>`;
+    }
+    function renderFails(errors) {
+      const box = document.getElementById("fails");
+      if (!errors || !errors.length) { box.hidden = true; box.innerHTML = ""; return; }
+      box.hidden = false;
+      box.innerHTML = `<div class="fh">${errors.length} 条未纳入（坏样本不影响其余结果）</div>` +
+        errors.slice(0, 5).map(e => `<div>#${e.index + 1} ${esc(e.raw || "")} — ${esc(e.error || "")}</div>`).join("");
+    }
+    function toast(msg) {
+      let el = document.getElementById("toast");
+      if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; document.body.appendChild(el); }
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove("show"), 1600);
+    }
+    copyBtn.addEventListener("click", async () => {
+      const text = lastAssets.map(a => [a.method, a.template, (a.query_params || []).map(q => "?" + q).join("")].filter(Boolean).join(" ")).join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        toast("已复制 " + lastAssets.length + " 条资产");
+      } catch (e) { toast("复制失败：" + e.message); }
+    });
+
+    runBtn.addEventListener("click", run);
+    input.addEventListener("keydown", ev => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") { ev.preventDefault(); run(); }
+    });
+
+    // 首次打开自动预填示例。
+    // 不依赖 load 事件：局域网无外网时 Google Fonts 请求会挂起直到超时，load 事件被卡住，
+    // 依赖 load 会导致输入框为空、点「开始还原」直接空输入退回。
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => { if (!input.value) input.value = SAMPLE.join("\n"); });
+    } else if (!input.value) {
+      input.value = SAMPLE.join("\n");
+    }
+  </script>
+</body>
+</html>

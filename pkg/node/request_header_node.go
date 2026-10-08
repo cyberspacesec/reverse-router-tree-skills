@@ -57,11 +57,9 @@ func (n *RequestHeaderNode) FindOrCreateValueNode(headerValue string) *RequestHe
 
 	// 创建新的值节点
 	newValueNode := NewRequestHeaderValueNode(n.headerName, headerValue)
-	if err := n.AddChild(newValueNode); err == nil {
-		return newValueNode
-	}
-	// 覆盖说明：防御性失败分支（AddChild 出错时降级为 nil），正常路径不可达。保留原样。
-	return nil
+	// 新建值节点挂到分组下不会失败（非 nil、非自引用）。
+	_ = n.AddChild(newValueNode)
+	return newValueNode
 }
 
 // String 返回节点的字符串表示
@@ -126,3 +124,20 @@ func (n *RequestHeaderValueNode) String() string {
 
 // 确保 RequestHeaderValueNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestHeaderValueNode)(nil)
+
+// Clone 保留 header 分组节点类型。
+func (n *RequestHeaderNode) Clone() Node[NodeContext] {
+	return NewRequestHeaderNode(n.headerName)
+}
+
+// Clone 保留 header 值节点类型与所属 header 名。
+func (n *RequestHeaderValueNode) Clone() Node[NodeContext] {
+	c := NewRequestHeaderValueNode(n.headerName, n.headerValue)
+	return c
+}
+func (n *RequestHeaderNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}
+func (n *RequestHeaderValueNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

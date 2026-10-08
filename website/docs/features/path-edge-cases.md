@@ -11,7 +11,7 @@
 | 尾部斜杠 | `/api/users/` | `Trim(path, "/")` 去掉 | `UrlParser.Parse()` |
 | 连续斜杠 | `//api///users` | 循环替换 `//`→`/` | `UrlParser.Parse()` |
 | URL 编码 | `/api/%E7%94%A8%E6%88%B7` | `url.PathUnescape()` 解码 → `/api/用户` | `normalizePathSegment()` |
-| 路径遍历 | `/api/../etc/passwd` | `.` 和 `..` 段过滤忽略 | `normalizePathSegment()` |
+| 路径遍历 | `/api/../etc/passwd` | 按 RFC 3986 消解：`.` 丢弃，`..` 弹出上一段 | `resolveDotSegments()` |
 | 文件扩展名 | `/api/data.json` | 排除，不作为变量 | `hasFileExtension()` |
 | 路径参数 | `/api/action=delete` | 识别为参数 | `HttpRequestPath.detectPathParam()` |
 | 大小写敏感 | `/API/Users` | 路径**区分大小写**（保留原样） | — |
@@ -42,15 +42,16 @@
 
 ## 路径遍历
 
+按 RFC 3986 `remove_dot_segments` 消解，而不是把 `.`/`..` 整段丢掉：
+
 ```
-/api/../etc/passwd
-/api/./config
-        │  normalizePathSegment 过滤 . 和 ..
-        ▼
-["api"]   ← .. 和 . 段被忽略
+/api/./config        → ["api", "config"]
+/api/users/../admin  → ["api", "admin"]
+/api/../etc/passwd   → ["etc", "passwd"]
+/%2e%2e/admin        → ["admin"]     ← 先 %xx 解码，再消解
 ```
 
-安全处理，防止路径遍历字符串污染路由树。
+栈空时再遇到 `..` 直接忽略，不会产生越界段。`;` 后的矩阵参数（如 `;jsessionid=ABC`）不进路由，只保留分号前的段名。
 
 ## 文件扩展名排除
 

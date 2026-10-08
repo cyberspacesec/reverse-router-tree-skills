@@ -111,3 +111,6 @@ docs/superpowers/
 
 # Claude Code 本地会话产物
 .claude/
+
+# 局域网服务 URL（内网地址不入库，避免泄露）
+server-url.txt

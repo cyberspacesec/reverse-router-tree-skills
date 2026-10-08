@@ -10,9 +10,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/exporter"
 	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/router"
+	"github.com/cyberspacesec/reverse-router-tree-skills/pkg/tree"
 )
 
 // 以下变量由 goreleaser 构建时通过 -ldflags -X 注入版本/提交/构建时间。
@@ -23,20 +26,44 @@ var (
 	date    = "unknown"
 )
 
+// exitOn 是进程退出点。测试里换成记录函数，避免 log.Fatal 直接结束测试进程。
+var osExit = os.Exit
+
+var exitOn = func(v ...any) {
+	if shouldExit(v) {
+		log.Print(v...)
+		osExit(1)
+	}
+}
+
+// shouldExit 判断退出信息是否真的要结束进程。空信息表示正常结束。
+func shouldExit(v []any) bool {
+	return len(v) > 0 && v[0] != ""
+}
+
+// exportTree 导出路由树。测试可替换成返回错误的实现，覆盖导出失败退出。
+var exportTree = func(exp *exporter.OpenAPIExporter, t *tree.Tree) ([]byte, error) {
+	return exp.Export(t)
+}
+
 func main() {
 	// 版本标志仅对真实二进制生效：--version 打印后退出。
 	// quickstart 测试直接调用 main() 时，全局 flag.CommandLine 已被测试框架
 	// 解析过，故只在未解析过（真实运行）时才注册并解析，避免与测试参数冲突、
 	// 保持测试可重复运行。
-	if !flag.CommandLine.Parsed() {
-		showVersion := flag.Bool("version", false, "打印版本信息并退出")
-		flag.Parse()
-		if *showVersion {
-			fmt.Printf("quickstart %s (commit %s, built %s)\n", version, commit, date)
-			return
-		}
-	}
+	exitOn(boot(flag.CommandLine, flag.Args()))
+}
 
+// boot 处理 --version，否则跑样例。返回非空字符串表示应以该信息退出。
+func boot(fs *flag.FlagSet, args []string) string {
+	if handleFlags(fs, args) {
+		return ""
+	}
+	return runQuickstart()
+}
+
+// runQuickstart 喂入样例、打印路由树与归一化结果。导出失败时返回退出信息。
+func runQuickstart() string {
 	r := router.NewReverseRouter()
 
 	// 模拟测绘平台导出的一批 curl 命令：数字 ID 合并为 {users_id}，
@@ -53,10 +80,7 @@ func main() {
 		`curl 'http://api.example.com/api/users/123' -X DELETE -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9'`,
 	}
 	result := r.ReverseCurls(curls)
-	fmt.Printf("=== 批量喂入结果 ===\n成功 %d 条，失败 %d 条\n", result.Processed, result.Failed)
-	for _, e := range result.Errors {
-		fmt.Printf("  失败[%d] %s: %v\n", e.Index, e.Raw, e.Err)
-	}
+	fmt.Print(batchSummary(result))
 
 	// 打印还原出的路由树。
 	fmt.Println("=== 还原路由树 ===")
@@ -67,9 +91,9 @@ func main() {
 	exp.Title = "Users API (Reverse Engineered)"
 	exp.Version = "1.0.0"
 	exp.ServerURL = "https://api.example.com"
-	doc, err := exp.Export(r.Tree)
-	if err != nil {
-		log.Fatalf("导出 OpenAPI 失败: %v", err)
+	doc, err := exportTree(exp, r.Tree)
+	if msg := exportError(err); msg != "" {
+		return msg
 	}
 
 	fmt.Println("=== OpenAPI 3.0.3 规范 ===")
@@ -96,10 +120,55 @@ func main() {
 	}
 	for _, u := range samples {
 		route, ok := r.NormalizeURLString(u, "GET")
-		if ok {
-			fmt.Printf("  %-52s → %s %s\n", u, route.Method, route.Template)
-		} else {
-			fmt.Printf("  %-52s → 未命中已知路由\n", u)
-		}
+		fmt.Printf("  %-52s → %s\n", u, normalizeLine(route, ok))
 	}
+	return ""
+}
+
+// printVersion 在要求打印版本时输出一行并返回 true。
+func printVersion(show bool) bool {
+	if !show {
+		return false
+	}
+	fmt.Printf("quickstart %s (commit %s, built %s)\n", version, commit, date)
+	return true
+}
+
+// exportError 把导出失败整理成退出信息。
+func exportError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("导出 OpenAPI 失败: %v", err)
+}
+
+// normalizeLine 把归一化结果格式化成一行；未命中时给出固定说明。
+func normalizeLine(route router.NormalizedRoute, ok bool) string {
+	if !ok {
+		return "未命中已知路由"
+	}
+	return route.Method + " " + route.Template
+}
+
+// handleFlags 解析 --version。命令行已经解析过，或解析失败时，什么都不做。
+// 返回 true 表示只打印了版本，应直接退出。
+func handleFlags(fs *flag.FlagSet, args []string) bool {
+	if fs == nil || fs.Parsed() {
+		return false
+	}
+	showVersion := fs.Bool("version", false, "打印版本信息并退出")
+	if err := fs.Parse(args); err != nil {
+		return false
+	}
+	return printVersion(*showVersion)
+}
+
+// batchSummary 汇总批量喂入结果，失败样本逐条列出。
+func batchSummary(result router.BatchResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "=== 批量喂入结果 ===\n成功 %d 条，失败 %d 条\n", result.Processed, result.Failed)
+	for _, e := range result.Errors {
+		fmt.Fprintf(&b, "  失败[%d] %s: %v\n", e.Index, e.Raw, e.Err)
+	}
+	return b.String()
 }

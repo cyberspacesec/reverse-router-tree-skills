@@ -276,6 +276,11 @@ type Node[Context NodeContext] interface {
 	//   - int64: 当前节点被请求命中的总次数
 	GetRequestCount() int64
 
+	// SetRequestCount 直接设置请求计数。
+	// 仅供持久化恢复使用（JSON 反序列化回填历史命中数），
+	// 正常采集路径应使用 IncrementRequestCount。
+	SetRequestCount(count int64)
+
 	// DeepClone 深度克隆节点及其所有子节点
 	// 此方法会复制整个子树结构，包括所有子节点
 	// 返回:

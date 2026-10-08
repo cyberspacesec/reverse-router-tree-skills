@@ -85,19 +85,21 @@ func TestExtremeA03_TenLevelStaticPath(t *testing.T) {
 	}
 }
 
-// Case A04: API 版本号路径 v1/v2/v3 合并
-func TestExtremeA04_APIVersionMerge(t *testing.T) {
+// Case A04: API 版本号默认是固定路由，不并进路径变量。
+// v1/v2/v3 是不同 API，合并会把两条资产缝成一条。
+func TestExtremeA04_APIVersionNotMerged(t *testing.T) {
 	r := newSilentRouter()
 	for _, v := range []string{"v1", "v2", "v3"} {
 		r.ReverseHttpRequest(request.NewHttpRequest("/api/"+v+"/users", nil, "GET", nil))
 	}
 	apiNode := r.Tree.Root.FindChildByKey("api")
-	versionVar := apiNode.GetChildByType("request_path_variable")
-	if versionVar == nil {
-		t.Fatal("v1/v2/v3 应被合并为路径变量（版本号模式）")
+	if apiNode.GetChildByType("request_path_variable") != nil {
+		t.Fatal("v1/v2/v3 默认不应合并为路径变量")
 	}
-	if versionVar.FindChildByKey("users") == nil {
-		t.Fatal("版本变量下应保留 users 子节点")
+	for _, v := range []string{"v1", "v2", "v3"} {
+		if apiNode.FindChildByKey(v) == nil {
+			t.Fatalf("版本段 %s 应保留为固定路径", v)
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
 # reverse-router-tree-skills
 
-> 从黑盒抓包流量还原 Web 应用的真实路由树，并导出为 OpenAPI 3.0.3 规范。
+> 从黑盒抓包流量还原 Web 应用的真实路由树，把散落 URL 归一化成稳定的路由资产，并可导出为 OpenAPI 3.0.3 规范。
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8)](https://go.dev)
 [![Go Test](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml/badge.svg)](https://github.com/cyberspacesec/reverse-router-tree-skills/actions/workflows/go-test.yml)
@@ -8,7 +8,7 @@
 
 > 🌐 **在线官网**：<https://cyberspacesec.github.io/reverse-router-tree-skills/> ｜ 📚 **教学文档**：<https://cyberspacesec.github.io/reverse-router-tree-skills/docs/>
 
-给一组抓到的 HTTP 请求，还你一棵还原好的路由树——识别路径变量、查询参数、Content-Type/Header/Cookie 路由维度，推断参数的物理与逻辑类型，最终导出成"黑盒版 Swagger"。
+给一组抓到的 HTTP 请求，还你一棵还原好的路由树——识别路径变量、查询参数、Content-Type/Header/Cookie 路由维度，推断参数的物理与逻辑类型；路由树进一步收敛为「方法 + 路径模板」的归一化资产，并导出成"黑盒版 Swagger"。
 
 ## 核心目标：网络空间测绘 URL 资产归一化
 
@@ -27,16 +27,16 @@ POST /api/users (json)     ──▶  requestBody: name, age
 
 ## 能力
 
-- **路径变量识别**：纯数字/UUID/手机号/身份证号/银行卡号/车牌号/前缀后缀模式自动合并为 `{var}`
+- **路径变量识别**：纯数字/UUID/手机号/身份证号/银行卡号/车牌号/前缀后缀模式自动合并为 `{var}`；`v1`/`v2` 版本段默认保持固定路径，`MergeVersionSegments` 打开后才合并为 `{parent_version}`
 - **选择性合并**：只合并匹配模式的兄弟节点，固定路径（`list`/`create`）不误合并
-- **查询参数 + 请求体**：JSON/表单/multipart 解析，JSON 嵌套点号扁平化，参数名大小写不敏感
+- **查询参数 + 请求体**：JSON/表单/multipart 解析，JSON 嵌套点号扁平化；参数名小写，`ids[]`/`filter[status]` 收成稳定键，`utm_*` 等追踪参数默认丢弃；`SignatureKey` 给出方法+模板+参数名签名
 - **多维度路由**：Content-Type / Header（Accept 等）/ Cookie 作为子路由维度
 - **两层类型推断**：物理类型（integer/string/...）+ 逻辑类型（uuid/phone/idcard/...）
 - **必需参数推断**：基于出现频率，阈值可配
 - **路由查询与资产归一化**：`IsNeedRequest` 判断是否需采集，`FindRouteNode` 查询命中节点；归一化提供 `Detailed` 变体返回机器可读失败原因（unknown_path/method/host/project/invalid_request）、`NormalizeReport` 批量明细替代静默丢弃、`ListAssets` 枚举全量资产、`NormalizeCurl`/`NormalizeURLString` 直达入口，读操作只读不建桶；`NormalizeURL`/`NormalizeURLs` 输出兼容的方法+路径模板资产，`NormalizeAssets` 输出包含 Host 的多目标资产键
-- **多目标 Host 隔离**：`RouterSet` 按 host 分桶，每个目标应用独立还原路由树，避免跨目标污染；`HostAssetKey` 用于跨目标资产清单
+- **多目标 Host 隔离**：`RouterSet` 按规范化 host 分桶（小写、去 userinfo、去 http:80/https:443），同一目标不因写法不同拆成多个桶；`HostAssetKey` 用于跨目标资产清单
 - **项目级隔离**：`ProjectManager` 按安全测试项目管理多个 `RouterSet`，同 host 在不同项目间互不污染；`SetMaxProjects` 防项目爆炸，`Project/Delete/Projects` 治理生命周期，合并/上限/脱敏/host上限/日志配置向已有与新建项目传播，`Stats/Health` 按项目聚合
-- **可续喂路由树**：JSON 序列化保留 ValueMetric 样本计数，分批采集导入后可继续推断；`ToVersionedJSON` 带版本信封持久化，`FromJSON` 兼容读历史裸 root 与版本信封，未知高版本明确报错
+- **可续喂路由树**：单树 `ToJSON`/`FromJSON` 保留 ValueMetric 与请求计数；`RouterSet.ExportJSON`/`ImportJSON`、`ProjectManager.ExportJSON`/`ImportJSON` 导出整库快照（host→树），未知更高版本报错且不改动已有数据；运行配置不进快照，导入后由接收方当前配置接管
 - **生产护栏（默认开启）**：`SetResourceLimits` 限单父节点子节点数 / 单 ValueMetric 不同值数 / 单路径段长度，超限 fail-soft（拒绝新建、占位计数、截断），`SetRedactConfig` 对敏感参数/cookie 只记结构不存原值（默认覆盖 password/passwd/pwd、sessionid），`RouterSet` 支持 `SetMaxHosts`/`Delete` 容量治理，配置向已有/新建 host 桶传播
 - **OpenAPI 3.0.3 导出**：路径/参数/请求体/安全方案（从 Authorization 推断 Bearer/Basic/Digest）
 - **并发安全**：`-race` 全量测试通过，多 goroutine 并发喂数据安全
@@ -107,6 +107,20 @@ func main() {
 | `pkg/value` | `ValueMetric` 值统计，类型常量 |
 | `pkg/exporter` | `OpenAPIExporter` OpenAPI 3.0.3 导出 |
 | `pkg/generator` | 随机数据生成器（端到端测试用） |
+
+## 交互式可视化演示
+
+一个 `go run` 起全栈演示：网页里粘贴一批抓包流量（CURL / URL），后端现场归一化，D3 树形图实时画出还原出的路由树，附资产清单与统计。
+
+```bash
+go run ./demo          # 打开 http://localhost:47177/（默认监听所有网卡，局域网机器可访问 http://<本机IP>:47177/）
+```
+
+- **两个页面**：首页（`index.html`）负责解释「这是什么 / 怎么用 / 为什么信得住」；**全屏还原工作台**（`workbench.html`）负责干活——左输入右展示、铺满视口、节点可点击折叠/展开子树
+- 支持单行 CURL、`METHOD URL`、裸 URL 混合输入，自动归类解析
+- 树节点按类型染色：变量节点（`{var}` + 推断类型）、参数节点、请求体字段；悬停节点看类型与样本值
+- 子路径部署：`go run ./demo -prefix /reverse-router-tree-skills/demo`（前端按页面路径自动推断 API 前缀，静态资源全部走相对链接）
+- 前端为纯静态页（D3 v7 已本地化为 `demo/web/d3.v7.min.js`，CDN 仅作离线兜底），后端仅 Go 标准库，零额外依赖
 
 ## 文档
 

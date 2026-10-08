@@ -99,8 +99,7 @@ func (c *ChainTypeInferenceRule) InferPhysicalAndLogical(n node.Node[node.NodeCo
 	if physicalRule == nil {
 		physicalRule = NewPhysicalTypeInferenceRule()
 	}
-	pt, err := physicalRule.Infer(n)
-	// 覆盖说明：物理推断器各路径均返回 nil error，本失败分支防御性不可达。保留原样。
+	pt, err := inferType(physicalRule, n)
 	if err != nil {
 		return value.PhysicalTypeString, value.LogicalTypeString, fmt.Errorf("物理类型推断失败: %w", err)
 	}
@@ -110,20 +109,22 @@ func (c *ChainTypeInferenceRule) InferPhysicalAndLogical(n node.Node[node.NodeCo
 	if logicalRule == nil {
 		logicalRule = NewLogicalTypeInferenceRule()
 	}
-	lt, err := logicalRule.Infer(n)
-	// 覆盖说明：逻辑推断器各路径均返回 nil error，本失败分支防御性不可达。保留原样。
+	lt, err := inferType(logicalRule, n)
 	if err != nil {
 		return physicalType, value.LogicalTypeString, nil
 	}
 	logicalType = value.LogicalType(lt)
 
-	// 如果逻辑类型和物理类型相同，说明没有推断出更具体的逻辑类型
-	// 此时逻辑类型保持为 string（表示没有更具体的语义信息）
-	// 覆盖说明：逻辑推断只产出结构化类型（email/date/...）或 string，
-	// 从不返回物理基础类型（integer/float/boolean/...），本归并分支不可达。保留原样。
+	// 逻辑类型与物理类型相同，说明没有更具体的语义，回落为 string。
 	if logicalType == value.LogicalType(physicalType) && physicalType != value.PhysicalTypeString {
 		logicalType = value.LogicalTypeString
 	}
 
 	return physicalType, logicalType, nil
+}
+
+// inferType 是类型推断的可替换入口。默认实现就是规则自身的 Infer；
+// 测试可替换它以覆盖失败与类型归并分支。
+var inferType = func(rule TypeInferenceRule, n node.Node[node.NodeContext]) (value.Type, error) {
+	return rule.Infer(n)
 }

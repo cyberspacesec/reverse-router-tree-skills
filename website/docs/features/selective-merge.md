@@ -44,9 +44,13 @@ users
    ├─ 兄弟数 >= SimilarLengthBreakThreshold(默认6) → 合并（突破）
    └─ 否则 → 不合并（保护 admin/manager/guest 这类固定路径名）
 
-② 明确结构化模式（integer/uuid/float/version/alphanumeric/
+② 明确结构化模式（integer/uuid/float/alphanumeric/
    phone/idcard/bankcard/plate）
    └─ similarity >= 0.4 即合并（降阈，因为数字/UUID/手机号几乎肯定是变量）
+
+   version（v1/v2/v3）默认不合并：API 版本是不同接口，不是变量。
+   需要旧行为时设 MergeConfig.MergeVersionSegments = true，
+   合并后的变量名为 {父段_version}。
 
 ③ 其他模式
    └─ similarity >= PatternSimilarityThreshold(默认0.6) 才合并

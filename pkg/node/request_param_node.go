@@ -19,12 +19,12 @@ import (
 //   - 必需性自动推断（基于参数在请求中的出现频率）
 type RequestParamNode struct {
 	*BaseNode[NodeContext]
-	required      bool                // 参数是否必需
-	valueMetric   *value.ValueMetric  // 值统计
-	valueType     value.Type          // 推断的值类型
-	logicalType   value.LogicalType   // 推断的逻辑类型
-	multiValue    bool                // 是否为多值参数（同一参数名出现多次）
-	presenceCount int64               // 参数在请求中出现的次数（用于必需性推断，atomic）
+	required      bool               // 参数是否必需
+	valueMetric   *value.ValueMetric // 值统计
+	valueType     value.Type         // 推断的值类型
+	logicalType   value.LogicalType  // 推断的逻辑类型
+	multiValue    bool               // 是否为多值参数（同一参数名出现多次）
+	presenceCount int64              // 参数在请求中出现的次数（用于必需性推断，atomic）
 	// typeMu 保护 required/valueType/logicalType/multiValue/lastInferredUniqueCount 的并发读写。
 	// 多个 goroutine 命中同一已存在参数节点时，findOrCreateParamNode 会并发
 	// 推断并回填类型/必需性，需同步保护。presenceCount 已用 atomic，单独处理。
@@ -325,3 +325,26 @@ func (n *RequestParamNode) extractParamValues(queryString string, paramName stri
 
 // 确保 RequestParamNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestParamNode)(nil)
+
+// Clone 保留参数节点的必需性、类型与出现次数。值样本不复制。
+func (n *RequestParamNode) Clone() Node[NodeContext] {
+	n.typeMu.RLock()
+	required, multi := n.required, n.multiValue
+	vt, lt := n.valueType, n.logicalType
+	last := n.lastInferredUniqueCount
+	n.typeMu.RUnlock()
+	c := NewRequestParamNode(n.GetKey(), n.GetDefaultValue(), required)
+	c.typeMu.Lock()
+	c.valueType = vt
+	c.logicalType = lt
+	c.multiValue = multi
+	c.lastInferredUniqueCount = last
+	c.typeMu.Unlock()
+	if pc := n.GetPresenceCount(); pc > 0 {
+		c.SetPresenceCount(pc)
+	}
+	return c
+}
+func (n *RequestParamNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

@@ -43,3 +43,13 @@ func (n *RequestMethodNode) IsMatch(method string) bool {
 
 // 确保 RequestMethodNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestMethodNode)(nil)
+
+// Clone 保留 request_method 类型。
+func (n *RequestMethodNode) Clone() Node[NodeContext] {
+	c := NewRequestMethodNode(n.GetKey())
+	c.SetValue(n.GetValue())
+	return c
+}
+func (n *RequestMethodNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

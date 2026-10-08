@@ -37,6 +37,11 @@ type MergeConfig struct {
 	// 出现率 >= 此阈值时判定为必需参数（0.0-1.0）。
 	// 默认 0.9：允许少量请求遗漏（如 10 次请求中出现 9 次即判定必需）。
 	RequiredParamThreshold float64
+
+	// MergeVersionSegments 是否把 API 版本段（v1/v2/v3）合并为路径变量。
+	// 默认 false：版本是路由维度不是变量，/api/v1/users 与 /api/v2/users 是两条资产。
+	// 置 true 恢复旧行为（3 个 vN 兄弟合并为 {parent_version}）。
+	MergeVersionSegments bool
 }
 
 // DefaultMergeConfig 默认合并配置
@@ -402,9 +407,10 @@ func (x *ReverseRouter) ReverseHttpRequest(req *request.HttpRequest) error {
 		return fmt.Errorf("处理Cookie路由失败: %w", err)
 	}
 
-	// 第9步：增加请求计数
+	// 第9步：增加请求计数，并在方法节点记下最近一条原始 URL 供资产回放。
 	currentNode.IncrementRequestCount()
 	methodNode.IncrementRequestCount()
+	methodNode.SetValue(req.Url)
 
 	x.stats.RequestsProcessed.Add(1)
 	x.stats.recordLatency(time.Since(start).Nanoseconds())
@@ -591,6 +597,11 @@ func (x *ReverseRouter) findMergeableSiblings(parent node.Node[node.NodeContext]
 
 	// similar_length_strings 默认不合并（避免固定路径名被误合并）
 	// 但当兄弟节点数量足够多时突破此规则（见 SimilarLengthBreakThreshold）
+	// 版本段默认是固定路由（v1/v2 是不同 API），不并进变量。
+	if patternName == "version" && !x.mergeConfig.MergeVersionSegments {
+		return nil
+	}
+
 	if patternName == "similar_length_strings" {
 		if x.mergeConfig.SimilarLengthBreakThreshold > 0 &&
 			len(children) >= x.mergeConfig.SimilarLengthBreakThreshold {
@@ -743,6 +754,20 @@ func (d *PatternDetector) DetectPattern(values []string) (string, float64) {
 	return bestPattern, bestRatio
 }
 
+// absorbRequestCount 把 other 的请求计数并入 dst，并在 dst 没有样本 URL 时补上。
+// 用于兄弟合并时同键子节点（通常是方法节点）只保留一棵子树的场景。
+func absorbRequestCount(dst, other node.Node[node.NodeContext]) {
+	if dst == nil || other == nil {
+		return
+	}
+	if n := other.GetRequestCount(); n > 0 {
+		dst.SetRequestCount(dst.GetRequestCount() + n)
+	}
+	if dst.GetValue() == "" && other.GetValue() != "" {
+		dst.SetValue(other.GetValue())
+	}
+}
+
 // mergeSiblings 将兄弟节点合并为一个路径变量节点
 func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], children []node.Node[node.NodeContext]) {
 	if len(children) == 0 {
@@ -772,9 +797,13 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 	// 生产护栏：ValueMetric 上限（防高基数字段撑爆内存）
 	x.applyMetricCap(varNode.GetValueMetric())
 
-	// 收集所有观察到的值并合并子树
+	// 收集所有观察到的值并合并子树。
+	// 命中数按被合并段累加：路径段的请求计数只记在末段上，
+	// 丢掉它，快照恢复后资产 Hits 会小于实际采集次数。
+	var mergedHits int64
 	for _, child := range children {
 		varNode.ObserveValue(child.GetKey())
+		mergedHits += child.GetRequestCount()
 
 		for _, grandchild := range child.GetChildren() {
 			existing := varNode.FindChildByKey(grandchild.GetKey())
@@ -782,11 +811,17 @@ func (x *ReverseRouter) mergeSiblings(parent node.Node[node.NodeContext], childr
 				child.RemoveChild(grandchild)
 				varNode.AddChild(grandchild)
 			} else {
+				// 同键子节点（常见是同一个 HTTP 方法）只留一棵子树，
+				// 但请求计数和样本 URL 必须带过去。
+				absorbRequestCount(existing, grandchild)
 				existing.MergeWith(grandchild)
 			}
 		}
 
 		parent.RemoveChild(child)
+	}
+	if mergedHits > 0 {
+		varNode.SetRequestCount(varNode.GetRequestCount() + mergedHits)
 	}
 
 	// 如果有链式推断规则，在所有值观察完之后推断物理类型和逻辑类型。
@@ -1260,6 +1295,8 @@ func (x *ReverseRouter) IsNeedRequest(req *request.HttpRequest) bool {
 
 // NormalizedRoute 是一条流量归一化后的路由资产。
 // AssetKey 由 HTTP 方法和路径模板组成，保证不同方法不会被误合并。
+// 查询参数不进 AssetKey（同一接口的不同参数组合仍是一条资产）；
+// 需要参数维度时用 SignatureKey。
 type NormalizedRoute struct {
 	Host           string
 	Method         string
@@ -1267,6 +1304,10 @@ type NormalizedRoute struct {
 	PathParams     []string
 	QueryParams    []string
 	RequiredParams []string
+	// Hits 该方法节点被采集命中的次数（ListAssets 填充；单次归一化不填）。
+	Hits int64
+	// SampleURL 该方法最近一次采集到的原始 URL（最多保留 1 条，便于回放）。
+	SampleURL string
 }
 
 // AssetKey 返回适合作为测绘资产唯一键的稳定标识。
@@ -1291,8 +1332,25 @@ func (r NormalizedRoute) HostAssetKey() string {
 	return host + " " + key
 }
 
+// SignatureKey 返回带查询参数名签名的资产键：方法、模板，以及排序后的参数名。
+// 参数值不参与（page=1 与 page=2 同一签名）。无参数时与 AssetKey 相同。
+//
+//	GET /api/users?page&size
+func (r NormalizedRoute) SignatureKey() string {
+	base := r.AssetKey()
+	if len(r.QueryParams) == 0 {
+		return base
+	}
+	return base + "?" + strings.Join(r.QueryParams, "&")
+}
+
 // normalizePathSegments 沿已构建的路由树逐段定位，并同时生成路径模板。
-// 匹配语义与 RequestPathRouter.FindNode 保持一致：固定路径优先，未命中时回退路径变量。
+// 固定路径优先，未命中时回退路径变量——但回退前用 Matches 做模式校验：
+// 只有段值确实匹配变量节点推断出的 pattern（如 {users_id} 的 [0-9]+）才折叠进
+// 变量资产，不匹配返回 unknown_path。这与构建侧 findOrCreatePathNode 的严格
+// IsMatch 语义对齐，避免"未观察路径被误归入已知变量模板"（如
+// /api/users/profile 折叠进数字模式的 {users_id}）。
+// 注意用 Matches 而非 IsMatch：归一化是只读操作，不应因查询收集值污染统计。
 func (x *ReverseRouter) normalizePathSegments(paths []*request.HttpRequestPath) (node.Node[node.NodeContext], []string, []string, bool) {
 	current := node.Node[node.NodeContext](x.Tree.Root)
 	segments := make([]string, 0, len(paths))
@@ -1309,6 +1367,12 @@ func (x *ReverseRouter) normalizePathSegments(paths []*request.HttpRequestPath) 
 		}
 		pathVar := current.GetChildByType("request_path_variable")
 		if pathVar == nil {
+			return nil, nil, nil, false
+		}
+		varNode, ok := pathVar.(*node.RequestPathVariableNode)
+		if ok && !varNode.Matches(path.Path) {
+			// 段值不满足变量节点模式（如字母串不匹配 [0-9]+），视为未知路径。
+			// 若 tree 中存在脚本可按此分支扩展：该段可能对应一个尚未合并的新固定节点。
 			return nil, nil, nil, false
 		}
 		current = pathVar
@@ -1649,13 +1713,9 @@ func normalizeAuthorization(val string) string {
 	if val == "" {
 		return ""
 	}
-	parts := strings.SplitN(val, " ", 2)
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	// 覆盖说明：此分支为不可达死代码——val 非空时 strings.SplitN 恒返回至少 1 个 part，
-	// len(parts) > 0 恒为真。为保持语句覆盖率天花板透明，保留原样并文档化（见 TestGapRC_AuthorizationReturn）。
-	return ""
+	// 无空格时整段就是方案名（Bearer / Basic / Token）。
+	scheme, _, _ := strings.Cut(val, " ")
+	return scheme
 }
 
 // normalizeAcceptLanguage 规范化 Accept-Language header

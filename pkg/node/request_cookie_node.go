@@ -53,11 +53,9 @@ func (n *RequestCookieNode) FindOrCreateValueNode(cookieValue string) *RequestCo
 
 	// 创建新的值节点
 	newValueNode := NewRequestCookieValueNode(n.cookieName, cookieValue)
-	if err := n.AddChild(newValueNode); err == nil {
-		return newValueNode
-	}
-	// 覆盖说明：防御性失败分支（AddChild 出错时降级为 nil），正常路径不可达。保留原样。
-	return nil
+	// 新建值节点挂到分组下不会失败（非 nil、非自引用）。
+	_ = n.AddChild(newValueNode)
+	return newValueNode
 }
 
 // String 返回节点的字符串表示
@@ -122,3 +120,19 @@ func (n *RequestCookieValueNode) String() string {
 
 // 确保 RequestCookieValueNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestCookieValueNode)(nil)
+
+// Clone 保留 cookie 分组节点类型。
+func (n *RequestCookieNode) Clone() Node[NodeContext] {
+	return NewRequestCookieNode(n.cookieName)
+}
+
+// Clone 保留 cookie 值节点类型与所属 cookie 名。
+func (n *RequestCookieValueNode) Clone() Node[NodeContext] {
+	return NewRequestCookieValueNode(n.cookieName, n.cookieValue)
+}
+func (n *RequestCookieNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}
+func (n *RequestCookieValueNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

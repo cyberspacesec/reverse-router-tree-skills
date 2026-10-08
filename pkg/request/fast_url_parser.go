@@ -27,6 +27,100 @@ func ExtractHost(raw string) string {
 	return rest[:end]
 }
 
+// CanonicalHost 把原始 host[:port] 归一化为测绘分桶用的稳定键。
+//
+// 规则（结果全小写）：
+//   - 剥 userinfo（user:pass@）
+//   - 剥 fragment（authority 误带 #frag 时，# 及之后丢弃）
+//   - 按 scheme 去掉默认端口：http 的 :80、https 的 :443；scheme 为空时两者都去
+//   - IPv6 保留方括号：http://[::1]:80 → [::1]
+//
+// 入参可以是纯 host，也可以是完整 URL / scheme-relative URL；
+// 含 :// 或 // 时先经 ExtractHost 取 authority。
+func CanonicalHost(raw, scheme string) string {
+	if raw == "" {
+		return ""
+	}
+	host := raw
+	if strings.Contains(raw, "://") || strings.HasPrefix(raw, "//") {
+		host = ExtractHost(raw)
+	} else if !looksLikeHost(raw) {
+		// 纯路径（/api、api/users）不是 host。
+		return ""
+	}
+	if host == "" {
+		return ""
+	}
+	if i := strings.IndexByte(host, '#'); i >= 0 {
+		host = host[:i]
+	}
+	if i := strings.LastIndex(host, "@"); i >= 0 {
+		host = host[i+1:]
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	name, port, hasPort := splitHostPort(host)
+	if hasPort && isDefaultPort(scheme, port) {
+		return name
+	}
+	return host
+}
+
+// looksLikeHost 判断字符串是否像 host 而不是路径。
+// 含斜杠、问号、井号的是路径；有点、冒号、IPv6 方括号，或就是 localhost，才是 host。
+func looksLikeHost(s string) bool {
+	if s == "" || strings.ContainsAny(s, "/?#") {
+		return false
+	}
+	return strings.Contains(s, ".") || strings.Contains(s, ":") || strings.HasPrefix(s, "[") || s == "localhost"
+}
+
+// splitHostPort 拆出 host 与端口。IPv6 形如 [::1]:8080。
+// 无端口时 hasPort=false，name 为原串。裸 IPv6（多个冒号且无方括号）不拆端口。
+func splitHostPort(host string) (name, port string, hasPort bool) {
+	if strings.HasPrefix(host, "[") {
+		end := strings.IndexByte(host, ']')
+		if end < 0 {
+			return host, "", false
+		}
+		name = host[:end+1]
+		rest := host[end+1:]
+		if strings.HasPrefix(rest, ":") && len(rest) > 1 {
+			return name, rest[1:], true
+		}
+		return name, "", false
+	}
+	if strings.Count(host, ":") > 1 {
+		return host, "", false
+	}
+	if i := strings.LastIndexByte(host, ':'); i >= 0 {
+		return host[:i], host[i+1:], true
+	}
+	return host, "", false
+}
+
+// isDefaultPort 判断端口是否为该 scheme 的默认端口。
+// scheme 为空时 80 与 443 都视为默认：测绘流量里两种写法指向同一目标。
+func isDefaultPort(scheme, port string) bool {
+	switch strings.ToLower(scheme) {
+	case "http":
+		return port == "80"
+	case "https":
+		return port == "443"
+	case "":
+		return port == "80" || port == "443"
+	default:
+		return false
+	}
+}
+
+// urlScheme 提取 URL 的 scheme（不含 ://）；没有则返回空。
+func URLScheme(raw string) string {
+	if i := strings.Index(raw, "://"); i > 0 {
+		return strings.ToLower(raw[:i])
+	}
+	return ""
+}
+
 // fastParseURLPathAndQuery 轻量解析 URL，仅提取 path 与 query，避开 net/url.Parse 的全功能开销。
 //
 // 行为对齐 net/url 的 path/query 提取（但不构造 *url.URL 结构体，不解析 scheme/host 细节）：

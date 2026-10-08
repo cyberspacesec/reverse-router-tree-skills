@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>路由树还原 — reverse-router-tree-skills</title>
+  <meta name="description" content="把一批抓包流量（CURL / URL）喂进去，当场还原目标服务器的真实路由树——路径变量、查询参数、请求体、类型推断，一遍看清，并可导出 OpenAPI。" />
+  <link rel="icon" href="data:image/svg+xml,&#10;%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1721'/%3E%3Ccircle cx='16' cy='6' r='3.2' fill='%2334d399'/%3E%3Cpath d='M16 9v8M16 12l-6 6M16 12l6 6' stroke='%2334d399' stroke-width='2.4' stroke-linecap='round' fill='none'/%3E%3Ccircle cx='10' cy='20' r='2.2' fill='%2338bdf8'/%3E%3Ccircle cx='22' cy='20' r='2.2' fill='%23fbbf24'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="./d3.v7.min.js"></script>
+  <script>/* 局域网/内网离线部署兜底：本地 D3 缺失时再从 CDN 拉取（相对路径支持子路径部署） */
+    if (!window.d3) { var __s = document.createElement("script"); __s.src = "https://d3js.org/d3.v7.min.js"; document.head.appendChild(__s); }
+  </script>
+  <style>
+    :root {
+      --bg0: #0a1017;          /* 最底层 */
+      --bg1: #0e1721;          /* 面板 */
+      --bg2: #13202e;          /* 输入区/表头 */
+      --bg3: #16263a;          /* hover */
+      --line: #1e2f42;
+      --line-soft: #15263a;
+      --text: #e6eef5;
+      --text-2: #93a4b5;
+      --text-3: #5d6f82;
+      --green: #34d399;        /* 品牌：固定路径 / 主 CTA */
+      --green-dim: #0d9488;
+      --cyan: #38bdf8;         /* 变量节点 */
+      --amber: #fbbf24;        /* 参数 / 请求体 */
+      --red: #f87171;
+      --violet: #a78bfa;
+      --radius: 12px;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg0); color: var(--text); line-height: 1.7; }
+    ::selection { background: rgba(52,211,153,.28); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, .mono { font-family: var(--mono); }
+
+    /* ===== 导航 ===== */
+    .nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(10px); background: rgba(10,16,23,.82); border-bottom: 1px solid var(--line-soft); }
+    .nav-in { max-width: 1240px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-weight: 600; letter-spacing: .2px; color: var(--text); }
+    .brand:hover { text-decoration: none; }
+    .brand .dot { width: 11px; height: 11px; border-radius: 3px; background: linear-gradient(135deg, var(--green), var(--green-dim)); box-shadow: 0 0 14px rgba(52,211,153,.55); }
+    .brand b { color: var(--green); font-weight: 600; }
+    .nav-links { margin-left: auto; display: flex; gap: 18px; align-items: center; font-size: 14px; color: var(--text-2); }
+    .nav-links a { color: var(--text-2); }
+    .nav-links a:hover { color: var(--green); text-decoration: none; }
+    .nav-links .primary { color: var(--green); font-weight: 600; }
+    @media (max-width: 620px) {
+      .nav-in { padding: 12px 16px; gap: 10px; }
+      .brand { font-size: 14px; }
+      .nav-links { gap: 12px; font-size: 13px; }
+      .nav-links a.hide-m { display: none; }
+    }
+
+    /* ===== 首屏 ===== */
+    .hero { max-width: 1240px; margin: 0 auto; padding: 72px 24px 40px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; }
+    @media (max-width: 960px) { .hero { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 44px; } }
+    .hero-copy .kicker { font-size: 13.5px; color: var(--green); letter-spacing: 1.5px; margin-bottom: 14px; }
+    .hero-copy h1 { font-size: clamp(34px, 4.6vw, 52px); font-weight: 750; line-height: 1.14; letter-spacing: -.5px; }
+    .hero-copy h1 .accent { color: var(--green); position: relative; }
+    .hero-copy h1 .accent::after { content: ""; position: absolute; left: 0; right: 0; bottom: 2px; height: 8px; background: linear-gradient(90deg, rgba(52,211,153,.28), transparent 70%); z-index: -1; }
+    .hero-copy .sub { margin-top: 16px; color: var(--text-2); font-size: 16.5px; max-width: 520px; }
+    .hero-cta { margin-top: 28px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 9px; padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--sans); transition: transform .12s ease, background .15s ease, box-shadow .15s ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg, #34d399, #10b981); color: #062a1e; box-shadow: 0 8px 26px rgba(16,185,129,.32); }
+    .btn-primary:hover { box-shadow: 0 10px 32px rgba(16,185,129,.46); text-decoration: none; }
+    .btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--line); }
+    .btn-ghost:hover { background: var(--bg3); }
+    .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .trust { margin-top: 20px; color: var(--text-3); font-size: 13.5px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .trust span { display: inline-flex; align-items: center; gap: 6px; }
+    .trust i { font-style: normal; width: 4px; height: 4px; border-radius: 50%; background: var(--green-dim); }
+
+    /* 首屏演示画布 */
+    .hero-stage { background: var(--bg1); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 14px; box-shadow: 0 30px 80px rgba(0,0,0,.35); position: relative; overflow: hidden; }
+    .hero-stage::before { content: ""; position: absolute; inset: 0; pointer-events: none; background:
+        radial-gradient(600px 260px at 85% -10%, rgba(52,211,153,.08), transparent 60%),
+        radial-gradient(400px 220px at 10% 110%, rgba(56,189,248,.07), transparent 60%); }
+    .stage-sec { position: relative; }
+    .stage-label { font-size: 12px; color: var(--text-3); letter-spacing: 1.6px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .stage-label .n { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; border-radius: 4px; background: var(--bg2); border: 1px solid var(--line); font-size: 10px; font-family: var(--mono); color: var(--green); }
+    .url-strip { background: #0b141d; border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 14px; font-family: var(--mono); font-size: 12.4px; line-height: 2.05; overflow: hidden; }
+    .url-strip .u { color: #71808f; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .url-strip .u s { text-decoration: none; color: #97a7b6; }
+    .url-strip .u .hl { color: #cfe3f4; }
+    .url-strip .u.is-var { color: #2c3d4f; }
+    .gate { color: var(--green-dim); font-family: var(--mono); text-align: center; font-size: 13px; padding: 7px 0 5px; }
+    .hero-tree { margin-top: 2px; border: 1px solid var(--line-soft); border-radius: 12px; background: #0b141d; overflow: hidden; height: 460px; }
+    .hero-tree svg { display: block; width: 100%; height: 100%; }
+    .hero-tree .link { fill: none; stroke: #27425c; stroke-width: 1.5; }
+    .hero-tree .node-label { font-family: var(--mono); font-size: 11.5px; font-weight: 500; paint-order: stroke; stroke: #0b141d; stroke-width: 3.2px; }
+
+
+    .stage-label .live { margin-left: auto; letter-spacing: 0; color: var(--green); border: 1px solid rgba(52,211,153,.4); border-radius: 999px; padding: 0 8px; font-size: 10.5px; }
+    .hero-assets { margin-top: 12px; }
+    .stage-label b { margin-left: auto; color: var(--text-2); font-weight: 500; letter-spacing: 0; font-family: var(--mono); font-size: 11px; }
+    .asset-rows { background: #0b141d; border: 1px solid var(--line-soft); border-radius: 10px; padding: 6px 12px; font-family: var(--mono); font-size: 12px; }
+    .asset-rows .ar { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
+    .asset-rows .ar:last-child { border-bottom: none; }
+    .asset-rows .m { color: var(--green); min-width: 52px; font-weight: 600; }
+    .asset-rows .t { color: #cfe3f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .asset-rows .q { margin-left: auto; color: var(--text-3); font-size: 11px; }
+
+    /* ===== 通用 section ===== */
+    section.block { max-width: 1240px; margin: 0 auto; padding: 26px 24px 20px; }
+    .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+    .sec-head h2 { font-size: 21px; font-weight: 700; }
+    .sec-head .hint { color: var(--text-3); font-size: 13px; }
+
+    /* ===== 三步用起来 ===== */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 8px; }
+    .step { background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; position: relative; }
+    .step .n { font-family: var(--mono); font-size: 12px; letter-spacing: 1px; color: var(--green); display: block; margin-bottom: 10px; }
+    .step h3 { font-size: 15px; font-weight: 650; margin-bottom: 8px; color: var(--text); }
+    .step p { color: var(--text-2); font-size: 13.8px; }
+    .how-cta { margin-top: 26px; text-align: center; }
+
+    /* ===== 能力区 ===== */
+    .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 8px; }
+    .why .principle { background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; }
+    .why .principle h3 { font-size: 15px; font-weight: 650; margin-bottom: 8px; color: var(--text); }
+    .why .principle p { color: var(--text-2); font-size: 13.8px; }
+    .why .principle .mark { font-family: var(--mono); color: var(--green); font-size: 12px; letter-spacing: 1px; display: block; margin-bottom: 10px; }
+
+    /* ===== footer ===== */
+    footer { border-top: 1px solid var(--line-soft); margin-top: 40px; padding: 26px 24px 34px; text-align: center; color: var(--text-3); font-size: 13px; }
+    footer a { color: var(--text-2); }
+    footer a:hover { color: var(--green); }
+
+    /* ===== 提示浮层（tooltip） ===== */
+    #tip { position: fixed; z-index: 99; pointer-events: none; background: #0d1820; border: 1px solid var(--line); border-radius: 9px; padding: 10px 13px; font-size: 12.4px; font-family: var(--mono); color: var(--text); max-width: 360px; box-shadow: 0 14px 36px rgba(0,0,0,.5); opacity: 0; transition: opacity .12s; line-height: 1.6; }
+    #tip .tt-title { font-weight: 600; }
+    #tip .tt-row { color: var(--text-2); }
+    #tip .tt-row b { color: var(--text); font-weight: 500; }
+
+    /* 首屏开场动画（prefers-reduced-motion 关闭） */
+    .url-strip .u { opacity: 0; transform: translateX(-6px); transition: opacity .5s ease, transform .5s ease; }
+    .gate { opacity: 0; transition: opacity .4s ease .6s; }
+    .hero-ready .url-strip .u { opacity: 1; transform: none; }
+    .hero-ready .gate { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .url-strip .u, .gate { transition: none; opacity: 1; transform: none; }
+      .url-strip .u:nth-child(n) { transition-delay: 0s !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-in">
+      <a class="brand" href="#top"><span class="dot"></span>reverse-<b>router</b>-tree</a>
+      <div class="nav-links">
+        <a href="workbench.html" class="primary">现场还原 →</a>
+        <a href="#how" class="hide-m">怎么用</a>
+        <a href="#why" class="hide-m">能力</a>
+        <a href="https://cyberspacesec.github.io/reverse-router-tree-skills/docs/" target="_blank" rel="noopener">文档</a>
+        <a href="https://github.com/cyberspacesec/reverse-router-tree-skills" target="_blank" rel="noopener" class="hide-m">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-copy">
+      <div class="kicker">网络空间测绘 · URL 资产归一化</div>
+      <h1>散落的 URL，<span class="accent">长成一棵树。</span></h1>
+      <p class="sub">把一批抓包流量（CURL / URL）喂进去，当场还原目标服务器的真实路由树——路径变量、查询参数、请求体、类型推断，一遍看清。</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" id="ctaRun" href="workbench.html">进入全屏还原工具 →</a>
+        <a class="btn btn-ghost" href="https://cyberspacesec.github.io/reverse-router-tree-skills/docs/" target="_blank" rel="noopener">阅读文档</a>
+      </div>
+      <div class="trust">
+        <span>纯 Go · 零外部依赖</span><i></i>
+        <span>支持 OpenAPI 3.0.3 导出</span><i></i>
+        <span>并发安全 · 生产就绪</span>
+      </div>
+    </div>
+
+    <div class="hero-stage" aria-hidden="true">
+      <div class="stage-sec">
+        <div class="stage-label"><span class="n">1</span>爬虫 / 扫描器眼里的散落 URL</div>
+        <div class="url-strip" id="heroUrls">
+          <span class="u"><s>/api/users/</s><span class="hl">123</span></span>
+          <span class="u"><s>/api/users/</s><span class="hl">456</span></span>
+          <span class="u"><s>/api/users/</s><span class="hl">789</span></span>
+          <span class="u">/api/users/profile</span>
+          <span class="u">/api/orders?status=paid</span>
+        </div>
+      </div>
+      <div class="gate">▼ 反向推理还原 ▼</div>
+      <div class="stage-sec">
+        <div class="stage-label"><span class="n">2</span>还原后的真实路由树 <span class="live" id="heroLive" hidden>引擎实算</span></div>
+        <div class="hero-tree" id="heroTree"></div>
+      </div>
+      <div class="stage-sec hero-assets" id="heroAssets" hidden>
+        <div class="stage-label"><span class="n">3</span>收敛成资产 <b id="heroCount"></b></div>
+        <div class="asset-rows" id="heroAssetRows"></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="block" id="how">
+    <div class="sec-head">
+      <h2>三步用起来</h2>
+      <span class="hint">从流量到路由资产，全程本地引擎计算</span>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="n">01</span>
+        <h3>粘贴抓包流量</h3>
+        <p>CURL、METHOD URL、裸 URL 混排均可，一次喂入一批，多域名自动隔离。</p>
+      </div>
+      <div class="step">
+        <span class="n">02</span>
+        <h3>一键还原路由树</h3>
+        <p>路径变量 / 查询参数 / 请求体 / 类型推断一次还原，D3 树形图实时画出。</p>
+      </div>
+      <div class="step">
+        <span class="n">03</span>
+        <h3>导出归一化资产</h3>
+        <p>收敛为「方法 + 路径模板」资产清单，支持导出 OpenAPI 3.0.3 黑盒版 Swagger。</p>
+      </div>
+    </div>
+    <div class="how-cta">
+      <a class="btn btn-primary" href="workbench.html">现在就去还原一个路由树 →</a>
+    </div>
+  </section>
+
+  <section class="block" id="why">
+    <div class="sec-head"><h2>为什么信得住</h2></div>
+    <div class="why">
+      <div class="principle">
+        <span class="mark">不是相似度 · 是还原</span>
+        <h3>反向推理成真实接口形态</h3>
+        <p>不做字符串模糊匹配：数字、UUID、手机号等模式被识别为路径变量，`list` / `create` 这类固定路径不会被误吞进模板。</p>
+      </div>
+      <div class="principle">
+        <span class="mark">多目标 Host 隔离</span>
+        <h3>每个应用一棵自己的树</h3>
+        <p>一次喂入多个域名的流量，按 Host 分桶各自还原，不会跨目标相互污染，资产清单按主机聚合。</p>
+      </div>
+      <div class="principle">
+        <span class="mark">两层类型推断</span>
+        <h3>从物理到逻辑语义</h3>
+        <p>参数与变量既有 integer / string 物理类型，也有 uuid / phone / idcard 等逻辑类型，可直接导出 OpenAPI 3.0.3「黑盒版 Swagger」。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>reverse-router-tree-skills · MIT · 纯 Go 标准库，零外部依赖 · <a href="workbench.html">现场还原工具</a> · <a href="https://github.com/cyberspacesec/reverse-router-tree-skills" target="_blank" rel="noopener">GitHub</a></p>
+  </footer>
+
+  <div id="tip"></div>
+
+  <script>
+    "use strict";
+
+    // ====== 工具 ======
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    }
+    const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // ====== 首屏概念树（静态演示，与后端示例同形） ======
+    const HERO_TREE = {
+      type: "root", key: "", requests: 5, children: [
+        { type: "request_url_method", key: "get", requests: 3, children: [
+          { type: "request_url_path", key: "/api/users", requests: 3, children: [
+            { type: "request_url_path_variable", key: "users_id", dynamic: true, requests: 3, inferred_type: "integer" },
+            { type: "request_url_path", key: "profile", requests: 1 },
+          ]},
+        ]},
+        { type: "request_url_method", key: "get", requests: 2, children: [
+          { type: "request_url_path", key: "/api/orders", requests: 2, children: [
+            { type: "request_url_param", key: "status", requests: 2, physical_type: "string", required: true },
+          ]},
+        ]},
+      ],
+    };
+
+    // ====== D3 树渲染（与全屏工具页共用同一套逻辑） ======
+    function nodeKind(d) {
+      if (d.data.dynamic || /variable/.test(d.data.type)) return "var";
+      if (/param|content|body|cookie|header/.test(d.data.type)) return "leaf";
+      return "fixed";
+    }
+    const NARROW = window.matchMedia("(max-width: 640px)").matches;
+    function nodeLabel(d) {
+      const t = d.data.type, k = d.data.key;
+      if (/method/.test(t)) return String(k).toUpperCase();
+      if (d.data.dynamic || /variable/.test(t)) return "{" + k + "}" + (!NARROW && d.data.inferred_type ? " · " + d.data.inferred_type : "");
+      if (/param/.test(t)) return "?" + k + (d.data.required ? "*" : "");
+      if (/path$/.test(t)) return k;
+      if (/host/.test(t)) return k;
+      if (/content/.test(t)) return "CT: " + k;
+      if (/cookie/.test(t)) return "ck: " + k;
+      if (t === "root") return "/";
+      return k;
+    }
+    function nodeFill(d) {
+      const kind = nodeKind(d);
+      if (d.data.type === "root") return "none";
+      if (kind === "var") return "rgba(56,189,248,.16)";
+      if (kind === "leaf") return "rgba(251,191,36,.15)";
+      return "rgba(52,211,153,.15)";
+    }
+    function nodeStroke(d) {
+      const kind = nodeKind(d);
+      if (d.data.type === "root") return "#3aa676";
+      if (kind === "var") return "#38bdf8";
+      if (kind === "leaf") return "#fbbf24";
+      return "#34d399";
+    }
+    function nodeTextColor(d) {
+      const kind = nodeKind(d);
+      if (kind === "var") return "#7dd3fc";
+      if (kind === "leaf") return "#fde68a";
+      return "#a7f3d0";
+    }
+
+    function annotate(n) {
+      n._sub = (n.children || []).reduce((s, c) => s + 1 + annotate(c), 0);
+      n.collapsedCount = () => n._sub || 0;
+      return n._sub;
+    }
+
+    // 标签按真实宽度排布：先离屏量字宽，再按宽度分离同层节点，
+    // 标签统一放在节点上方，次数放在下方。固定间距会让长标签叠在一起。
+    function measureLabels(root) {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font-family:var(--mono);font-size:11.5px;font-weight:500";
+      document.body.appendChild(probe);
+      root.each(d => {
+        probe.textContent = nodeLabel(d);
+        d._lw = probe.getBoundingClientRect().width;
+      });
+      probe.remove();
+    }
+
+    function buildTree(rootJSON, wrapEl, opts) {
+      const w = Math.max(wrapEl.clientWidth, 420);
+      wrapEl.innerHTML = "";
+      if (typeof d3 === "undefined") {
+        wrapEl.innerHTML = '<div class="empty">D3 加载失败（需要联网加载 d3.v7.min.js）</div>';
+        return;
+      }
+      const svg = d3.select(wrapEl).append("svg").attr("preserveAspectRatio", "xMidYMid meet");
+
+      const root = d3.hierarchy(rootJSON);
+      measureLabels(root);
+      const depth = root.height || 1;
+      // 纵向层间距按容器高度均分；横向间距取「标签不重叠」与
+      // 「按容器宽度分摊」两者中较小的，窄卡片不会被撑爆后缩成一团。
+      const gap = Math.max(96, ((wrapEl.clientHeight || 460) - 90) / depth);
+      const budget = (w - 70) / Math.max(1, root.leaves().length);
+      d3.tree().nodeSize([1, gap]).separation((a, b) => {
+        const labels = a._lw / 2 + b._lw / 2 + 26;
+        const need = Math.min(Math.max(labels, 150), Math.max(budget, labels));
+        return (a.parent === b.parent ? need : need * 1.3);
+      })(root);
+
+      const ds = root.descendants();
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      ds.forEach(d => {
+        minX = Math.min(minX, d.x - d._lw / 2); maxX = Math.max(maxX, d.x + d._lw / 2);
+        minY = Math.min(minY, d.y); maxY = Math.max(maxY, d.y);
+      });
+      const padX = 24, padY = 34;
+      const spanX = Math.max(1, maxX - minX);
+      const spanY = Math.max(1, maxY - minY);
+      const h = Math.max(wrapEl.clientHeight || 0, 300);
+      svg.attr("viewBox", `0 0 ${w} ${h}`);
+      // 整棵树缩放居中进容器，保证完整可见。
+      const k = Math.min((w - padX * 2) / spanX, (h - padY * 2) / spanY, 1.5);
+      const tx = w / 2 - k * (minX + maxX) / 2;
+      const ty = h / 2 - k * (minY + maxY) / 2;
+      const fit = d3.zoomIdentity.translate(tx, ty).scale(k);
+
+      const linkGen = d3.linkVertical().x(d => d.x).y(d => d.y);
+      const g = svg.append("g");
+      g.selectAll("path.link").data(root.links()).join("path")
+        .attr("class", "link")
+        .attr("d", linkGen)
+        .attr("stroke-opacity", REDUCED ? .75 : 0)
+        .transition().duration(REDUCED ? 0 : 420).delay(REDUCED ? 0 : (d, i) => (d.source.depth - 1) * 90 + i * 18)
+        .attr("stroke-opacity", .75);
+
+      const node = g.selectAll("g.node").data(ds, d => d.data.type + ":" + d.data.key).join("g");
+      node
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .attr("opacity", REDUCED ? 1 : 0)
+        .on("mousemove", (ev, d) => showTip(ev, d))
+        .on("mouseleave", () => hideTip());
+
+      node.append("circle")
+        .attr("r", d => (d.data.requests || 1) > 4 ? 10 : 7)
+        .attr("fill", d => d.data.type === "root" ? "transparent" : d3.color(nodeStroke(d)).copy({ opacity: .1 }))
+        .attr("stroke", "none")
+        .attr("class", "halo");
+      node.append("circle")
+        .attr("r", d => 4 + Math.min(6, Math.sqrt(d.data.requests || 1) * 1.8))
+        .attr("fill", nodeFill)
+        .attr("stroke", nodeStroke)
+        .attr("stroke-width", 1.8)
+        .attr("style", "cursor:pointer")
+        .append("title").text(d => nodeLabel(d));
+
+      node.each(function (d) {
+        const g = d3.select(this);
+        const label = nodeLabel(d);
+        const dy = -16;
+        const text = g.append("text")
+          .attr("dy", dy)
+          .attr("text-anchor", "middle")
+          .attr("class", "node-label")
+          .attr("fill", nodeTextColor(d))
+          .text(label);
+        const lw = text.node().getComputedTextLength();
+        g.insert("rect", "text.node-label")
+          .attr("x", -lw / 2 - 5).attr("y", dy - 12)
+          .attr("width", lw + 10).attr("height", 16).attr("rx", 4)
+          .attr("fill", "#0b141d");
+      });
+
+      node.append("text")
+        .attr("dy", 20)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#5d6f82")
+        .attr("font-size", "9.5px")
+        .attr("font-family", "var(--mono)")
+        .text(d => (d.data.requests || 0) > 1 ? "×" + d.data.requests : "");
+
+      node.transition().duration(REDUCED ? 0 : 420).delay(REDUCED ? 0 : d => d.depth * 90).attr("opacity", 1);
+
+      const zoom = d3.zoom().scaleExtent([.2, 3.2]).on("zoom", ev => g.attr("transform", ev.transform));
+      svg.call(zoom).on("dblclick.zoom", null);
+      svg.call(zoom.transform, fit);
+    }
+
+    // ====== 浮动提示 ======
+    function showTip(ev, d) {
+      const lines = [];
+      lines.push(["节点", nodeLabel(d)]);
+      if (d.data.requests) lines.push(["请求次数", d.data.requests]);
+      if (d.data.inferred_type) lines.push(["推断类型", d.data.inferred_type]);
+      if (d.data.physical_type) lines.push(["物理类型", d.data.physical_type]);
+      if (d.data.required) lines.push(["必需", "是"]);
+      if (d.data.pattern) lines.push(["匹配模式", d.data.pattern]);
+      if (d.data.value_counts && Object.keys(d.data.value_counts).length) {
+        const top = Object.entries(d.data.value_counts).slice(0, 6).map(([k, v]) => `${k}×${v}`).join(", ");
+        lines.push(["样本值", top + (Object.keys(d.data.value_counts).length > 6 ? " …" : "")]);
+      }
+      const tip = document.getElementById("tip");
+      tip.innerHTML = lines.map(([k, v]) => `<div class="tt-${k === "节点" ? "title" : "row"}"><b>${k}</b> ${esc(v)}</div>`).join("");
+      tip.style.opacity = 1;
+      moveTip(ev);
+    }
+    function hideTip() { document.getElementById("tip").style.opacity = 0; }
+    function moveTip(e) {
+      const tip = document.getElementById("tip");
+      const px = e.clientX, py = e.clientY;
+      tip.style.left = (px + 14 > innerWidth - 380 ? px - 380 - 10 : px + 14) + "px";
+      tip.style.top = (py + 14) + "px";
+    }
+    window.addEventListener("mousemove", e => { if (document.getElementById("tip").style.opacity == 1) moveTip(e); });
+
+    // ====== 首屏渲染 + 开场动画 ======
+    annotate(HERO_TREE);
+    buildTree(HERO_TREE, document.getElementById("heroTree"), { quiet: true });
+
+    // hero-ready 开场动画：不依赖 load 事件——局域网无外网时字体请求挂起会卡住 load，
+    // 依赖 load 会导致 hero-ready 永远不加、URL 条保持透明（opacity:0）。
+    function heroStart() {
+      requestAnimationFrame(() => {
+        document.querySelector(".hero").classList.add("hero-ready");
+        const us = document.querySelectorAll(".url-strip .u");
+        us.forEach((el, i) => { if (!REDUCED) el.style.transitionDelay = (i * 110) + "ms"; });
+      });
+    }
+    if (document.readyState !== "loading") heroStart();
+    else document.addEventListener("DOMContentLoaded", heroStart);
+
+    // 首屏默认画概念树；引擎在线时换成同一批样本的真实还原结果。
+    function loadShowcase() {
+      fetch(detectApiPrefix() + "/api/showcase").then(r => r.ok ? r.json() : Promise.reject()).then(data => {
+        if (!data || !data.tree) return;
+        annotate(data.tree);
+        buildTree(data.tree, document.getElementById("heroTree"), { quiet: true });
+        const live = document.getElementById("heroLive");
+        live.hidden = false;
+        const box = document.getElementById("heroAssets");
+        const rows = document.getElementById("heroAssetRows");
+        const assets = data.assets || [];
+        document.getElementById("heroCount").textContent = data.summary.input_lines + " 条 URL → " + assets.length + " 条资产";
+        rows.innerHTML = assets.map(a =>
+          `<div class="ar"><span class="m">${esc(a.method)}</span><span class="t">${esc(a.template)}</span>` +
+          `<span class="q">${(a.query_params || []).map(q => "?" + esc(q)).join(" ")}</span></div>`).join("");
+        box.hidden = false;
+      }).catch(() => {});
+    }
+    function detectApiPrefix() {
+      let p = location.pathname.replace(/\/?[^/]*\.html$/, "");
+      return p.replace(/\/+$/, "");
+    }
+    loadShowcase();
+
+  </script>
+</body>
+</html>

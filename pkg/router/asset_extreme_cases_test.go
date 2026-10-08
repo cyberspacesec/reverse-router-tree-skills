@@ -317,12 +317,17 @@ func TestAssetC05_FloatMerge(t *testing.T) {
 	}
 }
 
-func TestAssetC06_VersionMerge(t *testing.T) {
+func TestAssetC06_VersionNotMergedByDefault(t *testing.T) {
 	r := newSilentRouter()
 	assetFeed(t, r, "/api/app/v1", "/api/app/v2", "/api/app/v3")
-	pv := assetPathVar(t, r, "api", "app")
-	if pv.GetKey() != "app_version" {
-		t.Errorf("C06 version 变量名=%s want app_version", pv.GetKey())
+	app := r.Tree.Root.FindChildByKey("api").FindChildByKey("app")
+	if app.GetChildByType("request_path_variable") != nil {
+		t.Fatal("C06 版本段默认不应合并")
+	}
+	for _, v := range []string{"v1", "v2", "v3"} {
+		if app.FindChildByKey(v) == nil {
+			t.Errorf("C06 版本段 %s 应保留", v)
+		}
 	}
 }
 

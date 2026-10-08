@@ -64,13 +64,9 @@ func (h Headers) GetAuthScheme() string {
 	if auth == "" {
 		return ""
 	}
-	// Authorization: Bearer xxx, Basic xxx, Token xxx
-	parts := strings.SplitN(auth, " ", 2)
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	// 覆盖说明：auth 非空时 SplitN 恒返回 ≥1 段，本 return "" 不可达（防御性）。保留原样。
-	return ""
+	// Authorization: Bearer xxx, Basic xxx, Token xxx。无空格时整段就是方案名。
+	scheme, _, _ := strings.Cut(auth, " ")
+	return scheme
 }
 
 // GetXRequestedWith 获取 X-Requested-With header（常用于 AJAX 请求识别）

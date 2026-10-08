@@ -73,7 +73,7 @@ func TestParsePathStructure(t *testing.T) {
 		{"/api/users/", []string{"api", "users"}, []bool{false, false}},
 		{"/api/users.json", []string{"api", "users.json"}, []bool{false, false}},
 		{"/api/filter=1", []string{"api", "filter=1"}, []bool{false, true}},
-		{"/a/../b", []string{"a", "b"}, []bool{false, false}},
+		{"/a/../b", []string{"b"}, []bool{false}},
 		{"/a/./b", []string{"a", "b"}, []bool{false, false}},
 		{"/a b/c", []string{"a b", "c"}, []bool{false, false}},
 	}

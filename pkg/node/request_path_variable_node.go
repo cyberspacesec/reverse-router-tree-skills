@@ -69,11 +69,9 @@ func NewRequestPathVariableNode(position string, patternStr string) *RequestPath
 	return node
 }
 
-// IsMatch 判断请求的路径段是否匹配
-// 在黑盒分析模式下，如果有正则模式则按模式匹配，否则认为变量节点可以匹配任何非空路径段
-// 但会排除一些明显不是变量的路径段：
-//   - 包含文件扩展名的段（如 data.json, style.css）除非模式明确匹配
-//   - 纯字母的常见固定路径词（如 api, users, admin）除非模式明确匹配
+// IsMatch 判断请求的路径段是否匹配，并在匹配无 pattern 时观察该值。
+// 供构建侧（findOrCreatePathNode）使用：匹配即回填类型推断所需的值样本。
+// 只读查询注意：本方法有 ObserveValue 副作用，归一化侧应改用无副作用的 Matches。
 //
 // 参数:
 //   - pathSegment: URL路径的一个段
@@ -81,6 +79,19 @@ func NewRequestPathVariableNode(position string, patternStr string) *RequestPath
 // 返回:
 //   - bool: 如果路径段可能是变量则返回true，否则返回false
 func (n *RequestPathVariableNode) IsMatch(pathSegment string) bool {
+	// 记录观察到的值，用于后续类型推断（仅无 pattern 的启发式匹配时收集）
+	if n.pattern == nil && !hasFileExtension(pathSegment) && pathSegment != "" && pathSegment != "/" {
+		n.ObserveValue(pathSegment)
+	}
+	return n.Matches(pathSegment)
+}
+
+// Matches 判断路径段是否匹配该变量节点，不收集值、无副作用。
+// 隔离了 IsMatch 的 ObserveValue 副作用：归一化侧只在树上做只读定位，
+// 不应因一次查询试探污染值统计（否则 uniqueCount 变化会触发多余的类型重推断）。
+// 匹配语义与 IsMatch 完全一致：有 pattern 时严格按模式匹配（如 [0-9]+），
+// 无 pattern 时按启发式排除文件扩展名等明显固定段。
+func (n *RequestPathVariableNode) Matches(pathSegment string) bool {
 	// 变量路径段不应该为空，并且不应该包含路径分隔符
 	if pathSegment == "" || pathSegment == "/" {
 		return false
@@ -99,9 +110,6 @@ func (n *RequestPathVariableNode) IsMatch(pathSegment string) bool {
 	if hasFileExtension(pathSegment) {
 		return false
 	}
-
-	// 记录观察到的值，用于后续类型推断
-	n.ObserveValue(pathSegment)
 
 	return true
 }
@@ -255,3 +263,22 @@ func (n *RequestPathVariableNode) IsDynamic() bool {
 
 // 确保 RequestPathVariableNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestPathVariableNode)(nil)
+
+// Clone 保留路径变量类型、模式与已推断类型。值样本由调用方重新观察。
+func (n *RequestPathVariableNode) Clone() Node[NodeContext] {
+	pattern := ""
+	if n.pattern != nil {
+		pattern = n.pattern.String()
+	}
+	c := NewRequestPathVariableNode(n.GetKey(), pattern)
+	c.SetValue(n.GetValue())
+	n.typeMu.RLock()
+	c.valueType = n.valueType
+	c.logicalType = n.logicalType
+	c.lastInferredUniqueCount = n.lastInferredUniqueCount
+	n.typeMu.RUnlock()
+	return c
+}
+func (n *RequestPathVariableNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

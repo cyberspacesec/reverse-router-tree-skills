@@ -2,6 +2,7 @@ package request
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -76,16 +77,25 @@ func TestFastParse_VsOriginalParser(t *testing.T) {
 		segs = fastSplitPathSegments(pathStr, segs)
 		var fastPaths []*HttpRequestPath
 		var fastErr error
+		decodedSegs := make([]string, 0, len(segs))
 		for _, seg := range segs {
 			decoded, derr := fastDecodeSegment(seg)
 			if derr != nil {
 				fastErr = derr
 				break
 			}
-			if decoded == "" || decoded == "." || decoded == ".." {
-				continue
+			decodedSegs = append(decodedSegs, decoded)
+		}
+		if fastErr == nil {
+			for _, seg := range resolveDotSegments(decodedSegs) {
+				if i := strings.IndexByte(seg, ';'); i >= 0 {
+					seg = seg[:i]
+				}
+				if seg == "" {
+					continue
+				}
+				fastPaths = append(fastPaths, NewHttpRequestPath(seg))
 			}
-			fastPaths = append(fastPaths, NewHttpRequestPath(decoded))
 		}
 		// 两者要么都报错，要么都不报错
 		if (err != nil) != (fastErr != nil) {
@@ -162,12 +172,12 @@ func TestFastDecodeSegment(t *testing.T) {
 	}{
 		{"123", "123", false},               // 无 %
 		{"%E7%94%A8%E6%88%B7", "用户", false}, // 中文
-		{"abc%20def", "abc def", false},      // 空格
-		{"100%25", "100%", false},            // %25 = %
-		{"%2F", "/", false},                  // %2F = /
-		{"%xx", "", true},                    // 非法 %xx 报错
-		{"%", "", true},                      // 末尾孤立 % 报错
-		{"a+b", "a+b", false},                // + 原样保留（PathUnescape 行为）
+		{"abc%20def", "abc def", false},     // 空格
+		{"100%25", "100%", false},           // %25 = %
+		{"%2F", "/", false},                 // %2F = /
+		{"%xx", "", true},                   // 非法 %xx 报错
+		{"%", "", true},                     // 末尾孤立 % 报错
+		{"a+b", "a+b", false},               // + 原样保留（PathUnescape 行为）
 	}
 	for _, c := range cases {
 		got, err := fastDecodeSegment(c.in)

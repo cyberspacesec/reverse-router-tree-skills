@@ -17,3 +17,14 @@ func NewRequestPathNode(path string) *RequestPathNode {
 
 // 确保 RequestPathNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestPathNode)(nil)
+
+// Clone 保留 request_path 类型。BaseNode.Clone 只会得到 BaseNode，
+// 合并子树时按具体类型断言会失败。
+func (n *RequestPathNode) Clone() Node[NodeContext] {
+	c := NewRequestPathNode(n.GetKey())
+	c.SetValue(n.GetValue())
+	return c
+}
+func (n *RequestPathNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

@@ -254,10 +254,6 @@ func (g *Generator) genCookie() *CookieSpec {
 func pickAtLeast(rnd *rand.Rand, src []crudTemplate, min int) []crudTemplate {
 	idxs := rnd.Perm(len(src))
 	k := min + rnd.Intn(len(src)-min+1) // min..len(src)
-	// 覆盖说明：k 上界即为 len(src)（Intn 上限 len-min+1），本钳制分支不可达（防御性）。保留原样。
-	if k > len(src) {
-		k = len(src)
-	}
 	out := make([]crudTemplate, 0, k)
 	// 按 idxs 顺序取，但保持模板在原列表中的相对顺序
 	picked := make(map[int]bool)

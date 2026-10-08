@@ -351,13 +351,9 @@ func normalizeHeaderValue(name, val string) string {
 		}
 		return mime
 	case "Authorization":
-		// 只取认证方案（Bearer/Basic/Token）
-		parts := strings.SplitN(val, " ", 2)
-		if len(parts) > 0 {
-			return parts[0]
-		}
-		// 覆盖说明：val 非空时 SplitN 恒返回 ≥1 段，本 return "" 不可达（防御性）。保留原样。
-		return ""
+		// 只取认证方案（Bearer/Basic/Token）；无空格时整段就是方案名。
+		scheme, _, _ := strings.Cut(val, " ")
+		return scheme
 	case "Accept-Language":
 		// 取第一个语言标签，去 ;q= 因子
 		parts := strings.SplitN(val, ",", 2)

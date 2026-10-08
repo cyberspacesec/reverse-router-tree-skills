@@ -34,3 +34,13 @@ func (n *RequestContentTypeNode) IsMatch(contentType string) bool {
 
 // 确保 RequestContentTypeNode 实现了 Node 接口
 var _ Node[NodeContext] = (*RequestContentTypeNode)(nil)
+
+// Clone 保留 request_content_type 类型。
+func (n *RequestContentTypeNode) Clone() Node[NodeContext] {
+	c := NewRequestContentTypeNode(n.GetKey())
+	c.SetValue(n.GetValue())
+	return c
+}
+func (n *RequestContentTypeNode) DeepClone() Node[NodeContext] {
+	return n.deepCloneInto(n.Clone())
+}

@@ -35,29 +35,7 @@ func (x *Tree) AddNode(path string, n node.Node[node.NodeContext]) error {
 		return x.Root.AddChild(n)
 	}
 
-	segments := strings.Split(normalizedPath, "/")
-	currentNode := x.Root
-
-	for _, segment := range segments {
-		// 覆盖说明：normalizePath 已 Trim 首尾 "/" 并压缩 "//"，Split 后无空段，
-		// 本空段 continue 分支不可达（防御性）。保留原样以保证健壮。
-		if segment == "" {
-			continue
-		}
-
-		child := currentNode.FindChildByKey(segment)
-		if child != nil {
-			currentNode = child
-			continue
-		}
-
-		newPathNode := node.NewRequestPathNode(segment)
-		// 覆盖说明：新建节点挂到内存树上的 AddChild 正常不失败，本错误分支为防御性。保留原样。
-		if err := currentNode.AddChild(newPathNode); err != nil {
-			return fmt.Errorf("添加路径节点 '%s' 失败: %w", segment, err)
-		}
-		currentNode = newPathNode
-	}
+	currentNode, _ := walkSegments(x.Root, strings.Split(normalizedPath, "/"), true)
 
 	return currentNode.AddChild(n)
 }
@@ -69,24 +47,31 @@ func (x *Tree) FindNodeByPath(path string) node.Node[node.NodeContext] {
 		return x.Root
 	}
 
-	segments := strings.Split(normalizedPath, "/")
-	currentNode := x.Root
+	currentNode, _ := walkSegments(x.Root, strings.Split(normalizedPath, "/"), false)
+	return currentNode
+}
 
+// walkSegments 沿路径段下走。create 为真时缺失的段会建出来。
+// 空段跳过：normalizePath 之后正常不会出现，保留以容忍直接传入的分段。
+func walkSegments(current node.Node[node.NodeContext], segments []string, create bool) (node.Node[node.NodeContext], error) {
 	for _, segment := range segments {
-		// 覆盖说明：normalizePath 已 Trim 首尾 "/" 并压缩 "//"，Split 后无空段，
-		// 本空段 continue 分支不可达（防御性）。保留原样以保证健壮。
 		if segment == "" {
 			continue
 		}
-
-		child := currentNode.FindChildByKey(segment)
-		if child == nil {
-			return nil
+		child := current.FindChildByKey(segment)
+		if child != nil {
+			current = child
+			continue
 		}
-		currentNode = child
+		if !create {
+			return nil, nil
+		}
+		newPathNode := node.NewRequestPathNode(segment)
+		// 新建的路径节点挂到内存树上不会失败；失败只可能来自 nil 或自引用，这里都不是。
+		_ = current.AddChild(newPathNode)
+		current = newPathNode
 	}
-
-	return currentNode
+	return current, nil
 }
 
 // String 返回路由树的文本表示（树形结构）
@@ -251,6 +236,26 @@ func (x *Tree) ToJSON() ([]byte, error) {
 func (x *Tree) ToVersionedJSON() ([]byte, error) {
 	env := &TreeJSONEnvelope{Version: TreeJSONVersion, Tree: x.nodeToJSON(x.Root)}
 	return json.MarshalIndent(env, "", "  ")
+}
+
+// ExportRoot 导出根节点的 JSON 结构，供 RouterSet 整库快照复用。
+func (x *Tree) ExportRoot() *RouteNodeJSON {
+	if x == nil {
+		return nil
+	}
+	return x.nodeToJSON(x.Root)
+}
+
+// ImportRoot 用 JSON 结构替换根节点。jn 为 nil 时清空为一棵空树。
+func (x *Tree) ImportRoot(jn *RouteNodeJSON) {
+	if x == nil {
+		return
+	}
+	if jn == nil {
+		*x = *NewTree()
+		return
+	}
+	x.Root = x.jsonToNode(jn)
 }
 
 // nodeToJSON 将节点递归转换为JSON结构
@@ -421,6 +426,10 @@ func (x *Tree) jsonToNode(jn *RouteNodeJSON) node.Node[node.NodeContext] {
 		case *node.RequestCookieValueNode:
 			typed.GetValueMetric().RestoreCounts(jn.ValueCounts)
 		}
+	}
+
+	if jn.Requests > 0 {
+		n.SetRequestCount(jn.Requests)
 	}
 
 	// 递归处理子节点

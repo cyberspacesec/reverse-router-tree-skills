@@ -40,10 +40,11 @@ func routerHost(req *request.HttpRequest) string {
 	if req == nil {
 		return ""
 	}
+	// 显式 Host 优先，但仍走 CanonicalHost：去 userinfo、默认端口、fragment，并小写。
 	if h := strings.TrimSpace(req.Host); h != "" {
-		return strings.ToLower(h)
+		return request.CanonicalHost(h, request.URLScheme(req.Url))
 	}
-	return strings.ToLower(request.ExtractHost(req.Url))
+	return request.CanonicalHost(req.Url, "")
 }
 
 // RouterFor 返回请求对应的 host 路由器，并在首次访问时懒创建。

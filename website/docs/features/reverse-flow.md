@@ -88,14 +88,14 @@ paths, params, err := urlParser.Parse()
 /api/users/123?page=1&tag=go&tag=web&Page=2
         │
         ▼  UrlParser.Parse()
-paths:  ["api", "users", "123"]              ← URL 解码、过滤 ./.. 、去尾部斜杠
+paths:  ["api", "users", "123"]              ← URL 解码、消解 . 与 .. 、去尾部斜杠
 params: [{name:"page", value:"1"},           ← 参数名小写（Page→page, page 合并）
          {name:"tag",  value:"go"},           ← 多值展开成多条
          {name:"tag",  value:"web"},
          {name:"page", value:"2"}]
 ```
 
-`Parse()` 内部依次做：`Trim(path,"/")` 去尾部斜杠 → 循环替换 `//`→`/` → 逐段 `url.PathUnescape()` 解码 → `normalizePathSegment` 过滤 `.`/`..` → 参数名 `ToLower` → 多值参数展开。
+`Parse()` 内部依次做：去尾部斜杠并压缩 `//` → 逐段 `%xx` 解码 → `resolveDotSegments` 消解 `.`/`..` → 去掉 `;` 矩阵参数 → 参数名经 `CanonicalParamName`（小写、`ids[]`→`ids`、`filter[status]`→`filter.status`）→ 丢弃 `utm_*` 等噪声参数 → 多值展开。
 
 ## 第 ② 步：路径匹配/创建
 

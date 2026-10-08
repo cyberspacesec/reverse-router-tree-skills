@@ -337,7 +337,7 @@ func TestReverseRouter_PathVariableValueObservation(t *testing.T) {
 
 	// 请求多个数字ID
 	for _, id := range []string{"100", "200", "300", "400", "500"} {
-		req := request.NewHttpRequest("/api/items/" + id, nil, "GET", nil)
+		req := request.NewHttpRequest("/api/items/"+id, nil, "GET", nil)
 		router.ReverseHttpRequest(req)
 	}
 
@@ -424,10 +424,10 @@ func TestReverseRouter_MergeConfig(t *testing.T) {
 
 	// 自定义配置
 	r.SetMergeConfig(MergeConfig{
-		SiblingMergeThreshold:        5,
-		PatternSimilarityThreshold:   0.8,
-		SimilarLengthBreakThreshold:  10,
-		RequiredParamThreshold:       0.8,
+		SiblingMergeThreshold:       5,
+		PatternSimilarityThreshold:  0.8,
+		SimilarLengthBreakThreshold: 10,
+		RequiredParamThreshold:      0.8,
 	})
 	config = r.GetMergeConfig()
 	if config.SiblingMergeThreshold != 5 {
@@ -629,14 +629,15 @@ func TestReverseRouter_MidTreeVariableMerge(t *testing.T) {
 		t.Fatal("应该找到 'api' 路径节点")
 	}
 
-	// v1/v2/v3 应该被合并为路径变量
-	pathVarNode := apiNode.GetChildByType("request_path_variable")
-	if pathVarNode == nil {
-		t.Fatal("中间位置的版本号应该被合并为路径变量")
+	// v1/v2/v3 默认是固定路由，不合并。
+	if apiNode.GetChildByType("request_path_variable") != nil {
+		t.Fatal("中间位置的版本号默认不应合并为路径变量")
 	}
-
-	// 路径变量下应该有 users 节点
-	usersNode := pathVarNode.FindChildByKey("users")
+	v1 := apiNode.FindChildByKey("v1")
+	if v1 == nil {
+		t.Fatal("v1 应保留为固定路径")
+	}
+	usersNode := v1.FindChildByKey("users")
 	if usersNode == nil {
 		t.Fatal("路径变量下应该保留 'users' 子节点")
 	}

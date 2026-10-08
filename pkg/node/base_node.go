@@ -607,7 +607,7 @@ func (n *BaseNode[Context]) Clone() Node[Context] {
 		children:       make([]Node[Context], 0),
 		childrenByKey:  make(map[string]Node[Context]),
 		childrenByType: make(map[string][]Node[Context]),
-		requestCount:   0, // 不复制请求计数，因为这是一个新节点
+		requestCount:   0, // Clone 只复制结构；计数由 DeepClone 补回
 	}
 
 	return clone
@@ -617,43 +617,41 @@ func (n *BaseNode[Context]) Clone() Node[Context] {
 // 此方法会复制整个子树结构，包括所有子节点
 // 注意: 上下文对象仍然是浅拷贝的
 func (n *BaseNode[Context]) DeepClone() Node[Context] {
-	// 创建基础克隆
-	clone := n.Clone()
+	return n.deepCloneInto(n.Clone())
+}
 
-	// 获取子节点的本地副本，减少锁的持有时间
+// deepCloneInto 把子树深克隆挂到 shell 上，并带回本节点的请求计数。
+// shell 由具体类型的 Clone 提供，从而保留节点类型；子节点递归走各自的 DeepClone。
+func (n *BaseNode[Context]) deepCloneInto(shell Node[Context]) Node[Context] {
+	if c := atomic.LoadInt64(&n.requestCount); c > 0 {
+		shell.SetRequestCount(c)
+	}
+
 	n.childMu.RLock()
 	localChildren := make([]Node[Context], len(n.children))
 	copy(localChildren, n.children)
 	n.childMu.RUnlock()
 
-	// 克隆所有子节点并添加到新节点，并行处理
-	if len(localChildren) > 10 { // 只有当子节点数量足够大时才使用并行处理
+	if len(localChildren) > 10 {
 		var wg sync.WaitGroup
 		childClones := make([]Node[Context], len(localChildren))
-
 		for i, child := range localChildren {
 			wg.Add(1)
 			go func(index int, childNode Node[Context]) {
 				defer wg.Done()
-				childClones[index] = childNode.DeepClone() // 使用DeepClone而不是Clone来实现深度复制
+				childClones[index] = childNode.DeepClone()
 			}(i, child)
 		}
-
 		wg.Wait()
-
-		// 依次添加子节点，保持添加顺序
 		for _, childClone := range childClones {
-			clone.AddChild(childClone)
+			shell.AddChild(childClone)
 		}
 	} else {
-		// 子节点较少时直接串行处理更高效
 		for _, child := range localChildren {
-			childClone := child.DeepClone() // 使用DeepClone而不是Clone来实现深度复制
-			clone.AddChild(childClone)
+			shell.AddChild(child.DeepClone())
 		}
 	}
-
-	return clone
+	return shell
 }
 
 // Equals 判断两个节点是否相等
@@ -693,11 +691,21 @@ func (n *BaseNode[Context]) MergeWith(other Node[Context]) error {
 	}
 	n.childMu.RUnlock()
 
-	// 合并子节点，跳过键名已存在的子节点
+	// 合并子节点。键名已存在时递归合并并累加请求计数，
+	// 否则挂一棵深克隆（计数随克隆保留）。
 	otherChildren := other.GetChildren()
 	for _, child := range otherChildren {
-		// 如果键名已存在，则跳过
 		if existingKeys[child.GetKey()] {
+			if existing := n.FindChildByKey(child.GetKey()); existing != nil {
+				if c := child.GetRequestCount(); c > 0 {
+					existing.SetRequestCount(existing.GetRequestCount() + c)
+				}
+				// 经接口调用，子类型覆盖的 MergeWith 才能生效。
+				var asNode Node[Context] = existing
+				if err := asNode.MergeWith(child); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 
@@ -879,6 +887,11 @@ func (n *BaseNode[Context]) IncrementRequestCount() {
 // GetRequestCount 获取当前节点被请求命中的次数
 func (n *BaseNode[Context]) GetRequestCount() int64 {
 	return atomic.LoadInt64(&n.requestCount)
+}
+
+// SetRequestCount 直接设置请求计数（持久化恢复用）。
+func (n *BaseNode[Context]) SetRequestCount(count int64) {
+	atomic.StoreInt64(&n.requestCount, count)
 }
 
 // 清除路径缓存
